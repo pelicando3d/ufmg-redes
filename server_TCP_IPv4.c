@@ -94,6 +94,7 @@ void HandleTCPClient(int clntSocket) {
 
 	// Receive message from client
 	ssize_t numBytesRcvd = recv(clntSocket, buffer, BUFSIZE, 0);
+	printf("===> %s - %li\n", buffer, numBytesRcvd);
 	
 	if (numBytesRcvd < 0)
 		DieWithSystemMessage("recv() failed");
@@ -106,13 +107,12 @@ void HandleTCPClient(int clntSocket) {
       return ; // define a erro CODE
     }  
     while (pdirent=readdir(pd)){    
-      //printf("%s\n", pdirent->d_name);
-      pdirent=readdir(pd);
-      ssize_t numBytesSent = send(clntSocket, pdirent->d_name, sizeof(pdirent->d_name), 0);
+      //printf("%s\n", pdirent->d_name);      
+      ssize_t numBytesSent = send(clntSocket, pdirent->d_name, strlen(pdirent->d_name)+1, 0);
       if (numBytesSent < 0){
         DieWithSystemMessage("send() failed");
       }else{
-        printf("send() - Enviando mensagem para o cliente!\n");
+        printf("send() - Enviando mensagem para o cliente (%s)!\n", pdirent->d_name);
       }
     }
     closedir(pd);

@@ -10,7 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define BUFSIZE 256
+
 
 void DieWithUserMessage(const char *msg, const char *detail);
 
@@ -18,15 +18,26 @@ void DieWithSystemMessage(const char *msg);
 
 
 int main(int argc, char *argv[]) {
-	char *ip_server = argv[1]; // First arg: server IP address (dotted quad)
-	char *message = argv[2]; // Second arg: string to echo
+	char *command = argv[1]; // First arg: list or get command
+	char *ipv6server, *filename; // Middle args
+	in_port_t port_server;
+	int bufsize;
 
-	if (argc < 3 || argc > 4) // Test for correct number of arguments
+	if (argc < 4 || argc > 5) // Test for correct number of arguments
 		DieWithUserMessage("Parameter(s)",
 		"<Server Address> <Echo Word> [<Server Port>]");
 
-	// Third arg (optional): server port (numeric). 7 is well-known echo port
-	in_port_t port_server = (argc == 4) ? atoi(argv[3]) : 7;
+	// checking if we have a list or get command
+	if(!strcmp("list", command)){
+		ipv6server = argv[2];
+		port_server = atoi(argv[3]);
+		bufsize = atoi(argv[4]);
+	}else if (!strcmp("get", command)){
+		filename = argv[2];
+		ipv6server = argv[3];
+		port_server = atoi(argv[4]);
+		bufsize = atoi(argv[5]);
+	}
 
 	// Create a reliable, stream socket using TCP
 	int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -42,9 +53,11 @@ int main(int argc, char *argv[]) {
 
 	memset(&servAddr, 0, sizeof(servAddr)); // Zero out structure
 	servAddr.sin_family = AF_INET; // IPv4 address family
+
+
 	
 	// Converte endereço IPv4 e IPv6 do formato texto para binário
-	int rtnVal = inet_pton(AF_INET, ip_server, &servAddr.sin_addr.s_addr);
+	int rtnVal = inet_pton(AF_INET, ipv6server, &servAddr.sin_addr.s_addr);
 	
 	if (rtnVal == 0)
 		DieWithUserMessage("inet_pton() failed", "invalid address string");
@@ -61,29 +74,38 @@ int main(int argc, char *argv[]) {
 		printf("connect() - Estabelecendo conexão...\n");
 	}
 
-	size_t messageLen = strlen(message); // Determine input length
+
 
 	// Send the string to the server
-	ssize_t numBytes = send(sock, message, messageLen, 0);
+	ssize_t numBytes;
+	if(!strcmp("list", command)){
+		numBytes = send(sock, "./\0", 3, 0);
+	}
 	
 	if (numBytes < 0)
 		DieWithSystemMessage("send() failed");
-	else if (numBytes != messageLen){
-		DieWithUserMessage("send()", "sent unexpected number of bytes");
-	}else{
+	else
 		printf("send() - Enviando mensangem para o servidor...\n");
-	}
+	
 
 	// Receive list of files
 	unsigned int totalBytesRcvd = 0; // Count of total bytes received
-	fputs("Received: ", stdout); // Setup to print the echoed string
+	fputs("Received: \n", stdout); // Setup to print the echoed string
+	char buffer[bufsize]; // I/O buffer
 	while (1) {
-		char buffer[BUFSIZE]; // I/O buffer
+		
 		/* Receive up to the buffer size (minus 1 to leave space for
 		a null terminator) bytes from the sender */
 	
-		numBytes = recv(sock, buffer, BUFSIZE - 1, 0);
-		printf("%s\n", buffer);
+		numBytes = recv(sock, buffer, bufsize - 1, 0);
+		//PRECISA CRIAR LISTA ENCADEADA PRA PARTIR OS NOMES CORRETAMENTE
+		//nao necessariamente lista
+//		printf("%s\n", buffer);
+		int i;
+		for (i = 0; i < bufsize; i++) printf("%c", buffer[i]);
+		printf("\n======\n");
+		buffer[0] = '\0';
+
 		if (numBytes < 0)
 			break;
 		else if (numBytes == 0)
