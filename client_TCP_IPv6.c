@@ -20,10 +20,11 @@ void DieWithSystemMessage(const char *msg);
 typedef struct srv_comm {
   int sock;
   struct sockaddr_in6 serv_addr;
+  int buffer_size;
 } srv_comm;
 
 // aloca a estrutura e cria o socket
-srv_comm* create_servcomm () {
+srv_comm* create_servcomm (int bs) {
   srv_comm *scomm = (srv_comm*) malloc(sizeof(srv_comm));
   
   // Create a reliable, stream socket using TCP
@@ -36,6 +37,7 @@ srv_comm* create_servcomm () {
 	}
 
   scomm->sock = sock;
+  scomm->buffer_size = bs;
 	return scomm;
 }
 
@@ -86,15 +88,16 @@ void send_message(srv_comm *scomm, char *message) {
 char* response_list(srv_comm *scomm) {
 	unsigned int totalBytesRcvd = 0; // Count of total bytes received
 	unsigned int numBytes = 0;
-	char *response = (char*) malloc(BUFSIZE * sizeof(char));
-	
+	char *response = (char*) malloc(scomm->buffer_size);
+	char buffer[scomm->buffer_size];
+
 	while (1) {
-		char buffer[BUFSIZE]; // I/O buffer
-		numBytes = recv(scomm->sock, buffer, BUFSIZE - 1, 0);
+	  numBytes = recv(scomm->sock, buffer, scomm->buffer_size - 1, 0);
 		if (numBytes <= 0) break;
-		if (totalBytesRcvd) response = (char*) realloc(response, strlen(response) + BUFSIZE);
+		buffer[numBytes] = '\0';
+		if (totalBytesRcvd) response = (char*) realloc(response, strlen(response) + strlen(buffer) + 1);
 		strcat(response, buffer);
-		totalBytesRcvd += numBytes; 
+		totalBytesRcvd += numBytes;
 	}
 
 	return response;
@@ -103,14 +106,16 @@ char* response_list(srv_comm *scomm) {
 unsigned int response_get(srv_comm *scomm, char* filename) {
   unsigned int totalBytesRcvd = 0; // Count of total bytes received
 	unsigned int numBytes = 0;
-	FILE *file = fopen(filename, "ab+"); // file to be downloaded will be written here
-	
+	FILE *file = fopen(filename, "ab"); // file to be downloaded will be written here
+	char buffer[scomm->buffer_size+1]; // I/O buffer
+	// FILE *file = fopen("teste_escrita", "ab"); // file to be downloaded will be written here
+
 	while (1) {
-		char buffer[BUFSIZE]; // I/O buffer
-		numBytes = recv(scomm->sock, buffer, BUFSIZE - 1, 0);
+	  numBytes = recv(scomm->sock, buffer, scomm->buffer_size, 0);
 		if (numBytes <= 0) break;
-    fwrite(&buffer, sizeof(char) * strlen(buffer), strlen(buffer), file); // writes file
-		totalBytesRcvd += numBytes; 
+		buffer[numBytes] = '\0';
+    fwrite(&buffer, 1, strlen(buffer), file); // writes file
+		totalBytesRcvd += numBytes;
 	}
   fclose(file);
 	return totalBytesRcvd;
@@ -136,6 +141,7 @@ char* prepare_message_list () {
 
 void list_files(char *raw_response) {
   int i = 0;
+  printf("raw:\n%s\n",raw_response);
   printf("\nLista de arquivos disponiveis para baixar: \n");
   while(1){  	
   	if(raw_response[i] == '\\' && raw_response[i+1] == '0') break;
@@ -184,7 +190,7 @@ int main(int argc, char *argv[]) {
   buffer_size = atoi(argv[argv_offset + 4]);
   
   // creating sockets
-  srv_comm *scomm = create_servcomm();
+  srv_comm *scomm = create_servcomm(buffer_size);
   setup_addr(scomm, ip_server, port_server);
 
   // preparing message

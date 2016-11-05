@@ -1,18 +1,30 @@
 #include <iostream>
 #include <string>
 #include <cstring>
+#include <sstream>
+#include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <cstdlib>
+#include <cstdio>
 #include <unistd.h>
 #include <cassert>
 #include <fstream>
 #include <dirent.h>
 
 using namespace std;
- 
+
+void split(const string &s, char delim, vector<string> &elems) {
+	stringstream ss;
+  ss.str(s);
+  string item;
+  while (getline(ss, item, delim)) {
+    elems.push_back(item);
+  }
+}
+
 class server {
  
  private:
@@ -148,8 +160,33 @@ class server {
     ssize_t numBytesSent = send(client_fd, "\\0", 2, 0);
   }
 
-  void send_file(){
-    return;
+  void send_file(string filename){
+    char buffer[bufferSize + 1];
+    FILE *file = fopen(filename.c_str(), "rb"); // open in binary mode
+    if(file == NULL) cout << "Erro ao abrir o arquivo " << filename << endl;
+    unsigned int bytesRead = 0;
+    unsigned int totalBytesSent = 0;
+    
+    while(1) {
+      ssize_t nElem = fread(&buffer, 1, bufferSize, file);      
+      if (nElem <= 0 && !feof(file)) { 
+        cout << "Reading error. Bytes read: " << bytesRead << endl; 
+        return;
+      }
+
+      buffer[nElem] = '\0';
+      cout << buffer << endl;
+      ssize_t numBytesSent = send(client_fd, buffer, strlen(buffer), 0);
+      if (numBytesSent < 0){
+        cout << "send() failed"; break;
+      }else{
+        totalBytesSent += numBytesSent;
+        cout << "send() - Bytes ja enviados: " << totalBytesSent << endl;
+      }
+
+      if(feof(file)) break;
+    }
+    fclose(file);
   }
 
   bool receive_from_client (){
@@ -159,8 +196,11 @@ class server {
       if(str == "list"){
         send_filelist();        
         return true;
-      }else if(str == "get"){
-        send_file();
+      //if string starts with get
+      }else if(str.compare(0, 3, "get") == 0){
+     		//gets filename
+				string filename = str.substr(4, str.length() - 4);
+        send_file(filename);
         return true;
       }
     }
