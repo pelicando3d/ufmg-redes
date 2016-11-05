@@ -96,12 +96,15 @@ int main(int argc, char *argv[]) {
 		
 		/* Receive up to the buffer size (minus 1 to leave space for
 		a null terminator) bytes from the sender */
-	
+		
+		printf("Antes receber: \n");
 		numBytes = recv(sock, buffer, bufsize - 1, 0);
+		printf("Depois receber: \n");
 		//PRECISA CRIAR LISTA ENCADEADA PRA PARTIR OS NOMES CORRETAMENTE
 		//nao necessariamente lista
 //		printf("%s\n", buffer);
 		int i;
+		printf("(Bytes received: %li) ", numBytes);
 		for (i = 0; i < bufsize; i++) printf("%c", buffer[i]);
 		printf("\n======\n");
 		buffer[0] = '\0';
@@ -116,6 +119,7 @@ int main(int argc, char *argv[]) {
 		//fputs(buffer, stdout); // Print the echo buffer
 		//printf("%s\n", buffer);
 	}
+
 
 	fputc('\n', stdout); // Print a final linefeed
 	close(sock);

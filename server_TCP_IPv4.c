@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 
-#define BUFSIZE 256
+#define BUFSIZE 50
 
 static const int MAXPENDING = 5; // Maximum outstanding connection requests
 
@@ -22,10 +22,12 @@ void HandleTCPClient(int clntSocket);
 
 int main(int argc, char *argv[]) {
 
-	if (argc != 2) // Test for correct number of arguments
-	DieWithUserMessage("Parameter(s)", "<Server Port>");
+	if (argc != 4) // Test for correct number of arguments
+	DieWithUserMessage("Parameter(s)", "<Server Port> <bufferSize> <dir>");
 
 	in_port_t port_server = atoi(argv[1]); // First arg: local port
+	int bufsize = atoi(argv[2]);
+	char *dir = argv[3];
 
 	// Create socket for incoming connections
 	int servSock; // Socket descriptor for server
@@ -80,15 +82,16 @@ int main(int argc, char *argv[]) {
 		else
 			puts("Unable to get client address");
 
-		HandleTCPClient(clntSock);
+		HandleTCPClient(clntSock, bufsize, dir);
 	}
 // NOT REACHED
 }
 
 
 
-void HandleTCPClient(int clntSocket) {
-  char buffer[BUFSIZE]; // Buffer for echo string
+void HandleTCPClient(int clntSocket, int bufsize, char *dir) {
+  char buffer[bufsize]; // Buffer for echo string
+  char tmpBuf[bufsize];
   DIR *pd = 0;
   struct dirent *pdirent = 0;
 
@@ -99,16 +102,15 @@ void HandleTCPClient(int clntSocket) {
 	if (numBytesRcvd < 0)
 		DieWithSystemMessage("recv() failed");
 	
-	// Send received string and receive again until end of stream
 	while (numBytesRcvd > 0) { // 0 indicates end of stream
-    pd = opendir(buffer);
+    pd = opendir(dir);
     if(pd == NULL) {
       // ERROR: wrong path
-      return ; // define a erro CODE
+      return ; // define an erro CODE
     }  
-    while (pdirent=readdir(pd)){    
-      //printf("%s\n", pdirent->d_name);      
-      ssize_t numBytesSent = send(clntSocket, pdirent->d_name, strlen(pdirent->d_name)+1, 0);
+    while (pdirent=readdir(pd)){
+      int n = sprintf(tmpBuf,"$%lu$%s",strlen(pdirent->d_name),pdirent->d_name);
+	  ssize_t numBytesSent = send(clntSocket, tmpBuf, BUFSIZE, 0);
       if (numBytesSent < 0){
         DieWithSystemMessage("send() failed");
       }else{
