@@ -83,34 +83,37 @@ void send_message(srv_comm *scomm, char *message) {
 }
 
 // escuta resposta do servidor
-char* get_response(srv_comm *scomm) {
+char* response_list(srv_comm *scomm) {
 	unsigned int totalBytesRcvd = 0; // Count of total bytes received
-	int numBytes = 0;
+	unsigned int numBytes = 0;
 	char *response = (char*) malloc(BUFSIZE * sizeof(char));
 	
-	fputs("Received: ", stdout); // Setup to print the echoed string
-
 	while (1) {
 		char buffer[BUFSIZE]; // I/O buffer
-		/* Receive up to the buffer size (minus 1 to leave space for
-		a null terminator) bytes from the sender */
-	
 		numBytes = recv(scomm->sock, buffer, BUFSIZE - 1, 0);
 		if (numBytes <= 0) break;
-
 		if (totalBytesRcvd) response = (char*) realloc(response, strlen(response) + BUFSIZE);
 		strcat(response, buffer);
-		
-				
-		totalBytesRcvd += numBytes; // Keep tally of total bytes
-		//buffer[numBytes] = '\0'; // Terminate the string!
-		//fputs(buffer, stdout); // Print the echo buffer
-		//printf("%s\n", buffer);
+		totalBytesRcvd += numBytes; 
 	}
 
-	fputc('\n', stdout); // Print a final linefeed
-	
 	return response;
+}
+
+unsigned int response_get(srv_comm *scomm, char* filename) {
+  unsigned int totalBytesRcvd = 0; // Count of total bytes received
+	unsigned int numBytes = 0;
+	FILE *file = fopen(filename, "ab+"); // file to be downloaded will be written here
+	
+	while (1) {
+		char buffer[BUFSIZE]; // I/O buffer
+		numBytes = recv(scomm->sock, buffer, BUFSIZE - 1, 0);
+		if (numBytes <= 0) break;
+    fwrite(&buffer, sizeof(char) * strlen(buffer), strlen(buffer), file); // writes file
+		totalBytesRcvd += numBytes; 
+	}
+  fclose(file);
+	return totalBytesRcvd;
 }
 
 //////////////////////////////////
@@ -131,11 +134,7 @@ char* prepare_message_list () {
   return message;
 }
 
-void read_response_get(char *raw_response) {
-  printf("%s\n", raw_response);
-}
-
-void read_response_list(char *raw_response) {
+void list_files(char *raw_response) {
   int i = 0;
   printf("\nLista de arquivos disponiveis para baixar: \n");
   while(1){  	
@@ -199,13 +198,13 @@ int main(int argc, char *argv[]) {
 	send_message(scomm, message);
 
   // receive response
-  char *raw_response = get_response(scomm);
-
-  // interpret response
-  if (!strcmp(command, "get")) 
-    read_response_get(raw_response);
-  else if (!strcmp(command, "list"))
-    read_response_list(raw_response);
+  if (!strcmp(command, "get")) {
+    unsigned int numBytes = response_get(scomm, filename);
+    printf("N. bytes received: %ui\n", numBytes);
+  } else if (!strcmp(command, "list")) {
+    char *message = response_list(scomm);
+    list_files(message);
+  }
 
   // close communications
   close_servcomm(scomm);
