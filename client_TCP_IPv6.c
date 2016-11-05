@@ -79,7 +79,7 @@ void send_message(srv_comm *scomm, char *message) {
 	else if (nbytes_sent != messageLen)
 		DieWithUserMessage("send()", "sent unexpected number of bytes");
 	else
-		printf("send() - Enviando mensangem para o servidor...\n");
+		printf("send() - Enviando comando %s para o servidor...\n", message);
 }
 
 // escuta resposta do servidor
@@ -136,7 +136,18 @@ void read_response_get(char *raw_response) {
 }
 
 void read_response_list(char *raw_response) {
-  printf("%s\n", raw_response);
+  int i = 0;
+  printf("\nLista de arquivos disponiveis para baixar: \n");
+  while(1){  	
+  	if(raw_response[i] == '\\' && raw_response[i+1] == '0') break;
+  	if(raw_response[i] == '\\' && raw_response[i+1] == 'n'){
+  		printf("\n"); 
+  		i++;
+  	}
+  	else
+  		printf("%c", raw_response[i]);  	
+  	i++;
+  }  
 }
 
 

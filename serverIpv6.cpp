@@ -136,14 +136,16 @@ class server {
       return false; // define an erro CODE
     }  
     while (pdirent=readdir(pd)){
-      int n = sprintf(tmpBuf, "$%lu$%s", strlen(pdirent->d_name), pdirent->d_name);
-      ssize_t numBytesSent = send(client_fd, tmpBuf, bufferSize, 0);
+      //int n = sprintf(tmpBuf, "$%lu$%s", strlen(pdirent->d_name), pdirent->d_name);
+      int n = sprintf(tmpBuf, "%s\\n", pdirent->d_name);
+      ssize_t numBytesSent = send(client_fd, tmpBuf, strlen(tmpBuf), 0);
       if (numBytesSent < 0){
         cout << "send() failed";
       }else{
         cout << "send() - Enviando mensagem para o cliente (" << pdirent->d_name << ")!\n";
       }
     }
+    ssize_t numBytesSent = send(client_fd, "\\0", 2, 0);
   }
 
   void send_file(){
