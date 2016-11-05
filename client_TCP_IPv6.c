@@ -1,6 +1,3 @@
-
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +13,19 @@ void DieWithUserMessage(const char *msg, const char *detail);
 
 void DieWithSystemMessage(const char *msg);
 
-int create_socket() {
+//////////////////////////////////////////////////
+// SEÇÃO REFERENTE A COMUNICACAO COM O SERVIDOR //
+//////////////////////////////////////////////////
+
+typedef struct srv_comm {
+  int sock;
+  struct sockaddr_in6 serv_addr;
+} srv_comm;
+
+// aloca a estrutura e cria o socket
+srv_comm* create_servcomm () {
+  srv_comm *scomm = (srv_comm*) malloc(sizeof(srv_comm));
+  
   // Create a reliable, stream socket using TCP
 	int sock = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
 	
@@ -26,42 +35,123 @@ int create_socket() {
 		printf("Sock() - Criando o socket!\n");
 	}
 
-	return sock;
+  scomm->sock = sock;
+	return scomm;
 }
 
-struct sockaddr_in6 setup_addr(char *ip_server, in_port *port_server) {
-  // Construct the server address structure
-	struct sockaddr_in6 serv_addr; // Server address
-  serv_addr.sin6_family = AF_INET6;
-  serv_addr.sin6_port = htons(port_server); // Server port
-  serv_addr.sin6_flowinfo = 0; // nao sei se tem que setar, checar depois
+// fecha scoket criado
+void close_servcomm(srv_comm *scomm) {
+  close(scomm->sock);
+}
+
+// seta valores da estrutura com o endereco de destino
+void setup_addr(srv_comm *scomm, char *ip_server, in_port_t port_server) {
   
-  // Converte endereço IPv4 e IPv6 do formato texto para binário
-	int return_code = inet_pton(AF_INET6, ip_server, &serv_addr.sin6_addr.s6_add);
-  if (return_code == 0)
+  // seta valores passados por parametro
+  scomm->serv_addr.sin6_family = AF_INET6;
+  scomm->serv_addr.sin6_port = htons(port_server); // Server port
+  scomm->serv_addr.sin6_flowinfo = 0; // nao sei se tem que setar, checar depois
+  
+  // converte endereço IPv4 e IPv6 do formato texto para binário
+	int return_code = inet_pton(AF_INET6, ip_server, &scomm->serv_addr.sin6_addr.s6_addr);
+  if (return_code == 0) {
+    printf("%s\n", ip_server);
 		DieWithUserMessage("inet_pton() failed", "invalid address string");
-	else if (return_code < 0)
+  }	else if (return_code < 0)
 		DieWithSystemMessage("inet_pton() failed");
-
-  return serv_addr;
 }
 
-void prepare_message_get (char *filename, char *message) {
-  char *final_msg;
-  strcpy(final_msg, "get ");
-  strcat(final_msg, filename);
-  strcpy(message, final_msg);
+// conecta com o servidor e envia a mensagem especificada via parametro
+void send_message(srv_comm *scomm, char *message) {
+  // estabelecendo conexao
+	if (connect(scomm->sock, (struct sockaddr*) &scomm->serv_addr, sizeof(struct sockaddr_in6)) < 0)
+		DieWithSystemMessage("connect() failed");
+	else
+		printf("connect() - Estabelecendo conexão...\n");
+	
+  
+  // enviando mensagem para o servidor 
+	size_t messageLen = strlen(message); // Determine input length
+	ssize_t nbytes_sent = send(scomm->sock, message, messageLen, 0);
+	
+	if (nbytes_sent < 0)
+		DieWithSystemMessage("send() failed");
+	else if (nbytes_sent != messageLen)
+		DieWithUserMessage("send()", "sent unexpected number of bytes");
+	else
+		printf("send() - Enviando mensangem para o servidor...\n");
 }
 
-void prepare_message_list (char *message) {
+// escuta resposta do servidor
+char* get_response(srv_comm *scomm) {
+	unsigned int totalBytesRcvd = 0; // Count of total bytes received
+	int numBytes = 0;
+	char *response = (char*) malloc(BUFSIZE * sizeof(char));
+	
+	fputs("Received: ", stdout); // Setup to print the echoed string
+
+	while (1) {
+		char buffer[BUFSIZE]; // I/O buffer
+		/* Receive up to the buffer size (minus 1 to leave space for
+		a null terminator) bytes from the sender */
+	
+		numBytes = recv(scomm->sock, buffer, BUFSIZE - 1, 0);
+		if (numBytes <= 0) break;
+
+		if (totalBytesRcvd) response = (char*) realloc(response, strlen(response) + BUFSIZE);
+		strcat(response, buffer);
+		
+				
+		totalBytesRcvd += numBytes; // Keep tally of total bytes
+		//buffer[numBytes] = '\0'; // Terminate the string!
+		//fputs(buffer, stdout); // Print the echo buffer
+		//printf("%s\n", buffer);
+	}
+
+	fputc('\n', stdout); // Print a final linefeed
+	
+	return response;
+}
+
+//////////////////////////////////
+// SEÇÃO REFERENTE AOS COMANDOS //
+//////////////////////////////////
+
+char* prepare_message_get (char *filename) {
+  int msgLen = 5 + strlen(filename);
+  char* message = (char*) malloc(msgLen * sizeof(char));
+  strcpy(message, "get ");
+  strcat(message, filename);
+  return message;
+}
+
+char* prepare_message_list () {
+  char* message = (char*) malloc(5 * sizeof(char));
   strcpy(message, "list");
+  return message;
 }
+
+void read_response_get(char *raw_response) {
+  printf("%s\n", raw_response);
+}
+
+void read_response_list(char *raw_response) {
+  printf("%s\n", raw_response);
+}
+
+
+/////////////////////////////////////
+
 
 int main(int argc, char *argv[]) {
+	if (argc == 1) 
+	  DieWithUserMessage("Commands available: ",
+	        "get, list");
+	
 	char *command = argv[1];
 	char *filename;
 	char *ip_server;
-	in_port port_server;
+	in_port_t port_server;
 	int buffer_size;
 
   // confirming the correct number of parameters was sent
@@ -84,67 +174,30 @@ int main(int argc, char *argv[]) {
   buffer_size = atoi(argv[argv_offset + 4]);
   
   // creating sockets
-  int sock = create_socket();
-  struct sockaddr_in6 serv_addr = setup_addr();
+  srv_comm *scomm = create_servcomm();
+  setup_addr(scomm, ip_server, port_server);
 
   // preparing message
   char *message;
   if (!strcmp(command, "get")) 
-    prepare_message_get(filename, message);
+    message = prepare_message_get(filename);
   else if (!strcmp(command, "list"))
-    prepare_message_list(message);
+    message = prepare_message_list();
   
-	// establishing connection 
-	if (connect(sock, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)
-		DieWithSystemMessage("connect() failed");
-	else
-		printf("connect() - Estabelecendo conexão...\n");
-	
-  
-  // sending message to server
-	size_t messageLen = strlen(message); // Determine input length
-	ssize_t nbytes_sent = send(sock, message, messageLen, 0);
-	
-	if (nbytes_sent < 0)
-		DieWithSystemMessage("send() failed");
-	else if (nbytes_sent != messageLen)
-		DieWithUserMessage("send()", "sent unexpected number of bytes");
-	else
-		printf("send() - Enviando mensangem para o servidor...\n");
-	
+	// send message
+	send_message(scomm, message);
 
+  // receive response
+  char *raw_response = get_response(scomm);
 
+  // interpret response
+  if (!strcmp(command, "get")) 
+    read_response_get(raw_response);
+  else if (!strcmp(command, "list"))
+    read_response_list(raw_response);
 
-
-
-
-	/////////////////////////////////////
-	// nao modificado a partir daqui
-	////////////////////////////////////
-
-	// Receive list of files
-	unsigned int totalBytesRcvd = 0; // Count of total bytes received
-	fputs("Received: ", stdout); // Setup to print the echoed string
-	while (1) {
-		char buffer[BUFSIZE]; // I/O buffer
-		/* Receive up to the buffer size (minus 1 to leave space for
-		a null terminator) bytes from the sender */
-	
-		numBytes = recv(sock, buffer, BUFSIZE - 1, 0);
-		printf("%s\n", buffer);
-		if (numBytes < 0)
-			break;
-		else if (numBytes == 0)
-			break;
-		
-		totalBytesRcvd += numBytes; // Keep tally of total bytes
-		//buffer[numBytes] = '\0'; // Terminate the string!
-		//fputs(buffer, stdout); // Print the echo buffer
-		//printf("%s\n", buffer);
-	}
-
-	fputc('\n', stdout); // Print a final linefeed
-	close(sock);
+  // close communications
+  close_servcomm(scomm);
 	exit(0);
 }
 
