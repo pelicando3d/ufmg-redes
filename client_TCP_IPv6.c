@@ -1,11 +1,12 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
 
 #define BUFSIZE 256
 
@@ -105,16 +106,16 @@ char* response_list(srv_comm *scomm) {
 
 unsigned int response_get(srv_comm *scomm, char* filename) {
   unsigned int totalBytesRcvd = 0; // Count of total bytes received
-	unsigned int numBytes = 0;
-	FILE *file = fopen(filename, "ab"); // file to be downloaded will be written here
+	unsigned int numBytes = 0;  
+
+	FILE *file = fopen(filename, "w+"); // file to be downloaded will be written here
 	char buffer[scomm->buffer_size+1]; // I/O buffer
 	// FILE *file = fopen("teste_escrita", "ab"); // file to be downloaded will be written here
 
 	while (1) {
 	  numBytes = recv(scomm->sock, buffer, scomm->buffer_size, 0);
 		if (numBytes <= 0) break;
-		buffer[numBytes] = '\0';
-    fwrite(&buffer, 1, strlen(buffer), file); // writes file
+    fwrite(&buffer, 1, numBytes, file); // writes file
 		totalBytesRcvd += numBytes;
 	}
   fclose(file);
@@ -169,6 +170,7 @@ int main(int argc, char *argv[]) {
 	char *ip_server;
 	in_port_t port_server;
 	int buffer_size;
+  struct timeval t0, t1;
 
   // confirming the correct number of parameters was sent
   if (!strcmp(command, "get") && argc != 6) {
@@ -195,8 +197,10 @@ int main(int argc, char *argv[]) {
 
   // preparing message
   char *message;
-  if (!strcmp(command, "get")) 
+  if (!strcmp(command, "get")){    
+    gettimeofday (&t0, NULL);
     message = prepare_message_get(filename);
+  }
   else if (!strcmp(command, "list"))
     message = prepare_message_list();
   
@@ -204,9 +208,17 @@ int main(int argc, char *argv[]) {
 	send_message(scomm, message);
 
   // receive response
-  if (!strcmp(command, "get")) {
+  if (!strcmp(command, "get")) {    
     unsigned int numBytes = response_get(scomm, filename);
-    printf("N. bytes received: %ui\n", numBytes);
+    gettimeofday (&t1, NULL);    
+    float sec = t1.tv_sec-t0.tv_sec;
+    float micro = t1.tv_usec-t0.tv_usec;
+    float elapsed = ((float)(sec)*1000 + (float)(micro)/1000) / 1000;
+    float kbps = numBytes/elapsed;
+    //printf("Arquivo %s\tBuffer %5u byte, %10.2f kbps (%u bytes em %3u.%06u s) %3.6f(s)\n", filename, buffer_size, kbps, numBytes, sec, micro);
+    printf("Arquivo %s\tBuffer %5u byte, %10.2f kbps (%u bytes em %3.6f s)\n", filename, buffer_size, kbps, numBytes, elapsed);
+    //Utilizando o segundo printf, porque o primeiro retorna alguns valores errados em alguns casos.
+
   } else if (!strcmp(command, "list")) {
     char *message = response_list(scomm);
     list_files(message);
