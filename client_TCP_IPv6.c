@@ -8,7 +8,11 @@
 #include <arpa/inet.h>
 #include <sys/time.h>
 
-#define BUFSIZE 256
+
+class client {
+private:
+public:
+};
 
 void DieWithUserMessage(const char *msg, const char *detail);
 

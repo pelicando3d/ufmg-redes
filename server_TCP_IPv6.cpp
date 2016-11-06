@@ -18,14 +18,6 @@
 
 using namespace std;
 
-void split(const string &s, char delim, vector<string> &elems) {
-	stringstream ss;
-  ss.str(s);
-  string item;
-  while (getline(ss, item, delim)) {
-    elems.push_back(item);
-  }
-}
 
 class server {
  
@@ -38,6 +30,13 @@ class server {
   int bufferSize;
   char* dir;
   char cport[128];
+
+  template <typename T>
+  std::string to_string(T value){
+    std::ostringstream os ;
+    os << value ;
+    return os.str() ;
+  }
   
   void create_server_socket (){
  
@@ -143,23 +142,39 @@ class server {
   bool send_filelist(){
     DIR *pd = 0;
     struct dirent *pdirent = 0;
-    char tmpBuf[bufferSize];
+    std::string message;
+    char buffer[bufferSize];
+    int sendPosition, bytesLeft;
     pd = opendir(dir);
+    ssize_t numBytesSent;
+    int chunck_size;
+
     if(pd == NULL) {
       // ERROR: wrong path
       return false; // define an erro CODE
     }  
     while (pdirent=readdir(pd)){
       //int n = sprintf(tmpBuf, "$%lu$%s", strlen(pdirent->d_name), pdirent->d_name);
-      int n = sprintf(tmpBuf, "%s\\n", pdirent->d_name);
-      ssize_t numBytesSent = send(client_fd, tmpBuf, strlen(tmpBuf), 0);
-      if (numBytesSent < 0){
-        cout << "send() failed";
-      }else{
-        cout << "send() - Enviando mensagem para o cliente (" << pdirent->d_name << ")!\n";
-      }
-    }
-    ssize_t numBytesSent = send(client_fd, "\\0", 2, 0);
+      message = to_string(pdirent->d_name) + "\\n";
+      bytesLeft = message.size();
+      sendPosition = 0;
+      while(bytesLeft > 0){
+        chunck_size = bytesLeft > bufferSize? bufferSize : bytesLeft;
+        memcpy(buffer, message.c_str() + sendPosition, chunck_size);
+        numBytesSent = send(client_fd, message.c_str() + sendPosition, chunck_size, 0);        
+        cout << "enviando |" << message.c_str() + sendPosition << "| (" << numBytesSent << "," << bytesLeft << "," << sendPosition << endl; 
+        if (numBytesSent < 0){
+          cout << "send() failed";
+          exit(EXIT_FAILURE);
+        }else if(bytesLeft < 0){
+          cout << "send() - Enviando mensagem para o cliente (" << pdirent->d_name << ")!\n";
+        }
+        sendPosition += numBytesSent;
+        bytesLeft -= numBytesSent;        
+        cout << "\tProximo |" << message.c_str() + sendPosition << "| (" << numBytesSent << "," << bytesLeft << "," << sendPosition << endl; 
+      }      
+    }    
+    numBytesSent = send(client_fd, "\\0", 2, 0);
   }
 
   void send_file(string filename){
