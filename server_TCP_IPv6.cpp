@@ -162,7 +162,6 @@ class server {
         chunck_size = bytesLeft > bufferSize? bufferSize : bytesLeft;
         memcpy(buffer, message.c_str() + sendPosition, chunck_size);
         numBytesSent = send(client_fd, message.c_str() + sendPosition, chunck_size, 0);        
-        cout << "enviando |" << message.c_str() + sendPosition << "| (" << numBytesSent << "," << bytesLeft << "," << sendPosition << endl; 
         if (numBytesSent < 0){
           cout << "send() failed";
           exit(EXIT_FAILURE);
@@ -171,7 +170,6 @@ class server {
         }
         sendPosition += numBytesSent;
         bytesLeft -= numBytesSent;        
-        cout << "\tProximo |" << message.c_str() + sendPosition << "| (" << numBytesSent << "," << bytesLeft << "," << sendPosition << endl; 
       }      
     }    
     numBytesSent = send(client_fd, "\\0", 2, 0);
