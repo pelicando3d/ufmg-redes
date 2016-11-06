@@ -90,6 +90,7 @@ class server {
     char buffer[bufferSize];
     //memset (buffer, '\0', bufferSize);
     int nbytes;
+    bool signal = false;
     std::string msg, end("\\0");
 
     while( nbytes = recv (client_fd, buffer, bufferSize, 0) ){      
@@ -100,9 +101,12 @@ class server {
       }
       buffer[nbytes] = '\0';
       msg += buffer;
-      if (nbytes > 1 and buffer[nbytes-2] == '\\' and buffer[nbytes-1] == '0'){        
+      if(signal and buffer[nbytes-1] == '0') 
         return msg;
-      }
+      if (nbytes > 1 and buffer[nbytes-2] == '\\' and buffer[nbytes-1] == '0')
+        return msg;      
+      if(buffer[nbytes-1] == '\\')
+        signal = true;
     }
  
   }
@@ -156,6 +160,9 @@ class server {
       // ERROR: wrong path
       return false; // define an erro CODE
     }  
+
+    cout << "Sending listDir to client id: " << client_fd << endl;
+
     while (pdirent=readdir(pd)){
       //int n = sprintf(tmpBuf, "$%lu$%s", strlen(pdirent->d_name), pdirent->d_name);
       message = to_string(pdirent->d_name) + "\\n";
@@ -192,6 +199,7 @@ class server {
     unsigned int totalBytesSent = 0;
     
     ssize_t nElem = 0;
+    cout << "Sending file: " << filename << " to client id: " << client_fd << endl;
     while(true) {
       nElem = fread(&buffer, sizeof(char), bufferSize, file); 
       if (nElem <= 0 && !feof(file)) { 
@@ -204,7 +212,7 @@ class server {
         cout << "send() failed"; break;
       }else{
         totalBytesSent += numBytesSent;
-        cout << "send() - Bytes ja enviados: " << totalBytesSent << endl;
+        //cout << "send() - Bytes ja enviados: " << totalBytesSent << endl;
       }
 
       if(feof(file)){
@@ -242,11 +250,12 @@ class server {
 typedef struct {
   server s;
   bool status;
+  int id;
 } thread_arg, * ptr_thread_arg;
 
 void* create_thread(void *arg) {
   ptr_thread_arg argument = (ptr_thread_arg)arg;
-  cout << "entrou na thread\n";
+  cout << "entrou na thread - id: " <<argument->id << "\n";
   bool status = argument->s.receive_from_client();
   argument->status = status;
   if(status)
@@ -254,10 +263,10 @@ void* create_thread(void *arg) {
 }
 
  
-int main_thread (int argc, char* argv[]){
+int main (int argc, char* argv[]){
   int MAXTHREADS = 100;
   pthread_t threads[MAXTHREADS];    // ponteiro para as threads criadas
-  thread_arg arguments; 
+  thread_arg arguments[MAXTHREADS]; 
   int current_thread = 0;
   server s;
 
@@ -266,32 +275,12 @@ int main_thread (int argc, char* argv[]){
   s.listen_port();
   while (true){
     if(current_thread >= MAXTHREADS) current_thread = 0;
-    s.accept_connection();
-    arguments.s = s;
-    pthread_create(&(threads[current_thread++]), NULL, create_thread, &(arguments));
+    s.accept_connection();    
+    arguments[current_thread].s = s;
+    arguments[current_thread].id = current_thread;
+    pthread_create(&(threads[arguments[current_thread].id]), NULL, create_thread, &(arguments[current_thread]));
+    current_thread++;
   }
   return 0;
 }
 
-int main_normal (int argc, char* argv[]){
- 
-  server s;
-  s.initialize(argv[1], argv[2], argv[3]);
-  // server s;
-  s.listen_port();
-  while (true){
-    s.accept_connection();
-    while (true){
-      bool status = s.receive_from_client();
-      if (status)
-        break;
-    } 
-    s.close_connection_with_client();
-  } 
-  return 0;
-}
-
-int main(int a, char **b){
-  return main_thread(a,b);
-  //return main_normal(a,b);
-}
