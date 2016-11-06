@@ -197,6 +197,7 @@ class server {
     if(file == NULL) cout << "Erro ao abrir o arquivo " << filename << endl;
     unsigned int bytesRead = 0;
     unsigned int totalBytesSent = 0;
+    unsigned int totalMsgSent = 0;
     
     ssize_t nElem = 0;
     cout << "Sending file: " << filename << " to client id: " << client_fd << endl;
@@ -212,11 +213,12 @@ class server {
         cout << "send() failed"; break;
       }else{
         totalBytesSent += numBytesSent;
+        totalMsgSent += 1;
         //cout << "send() - Bytes ja enviados: " << totalBytesSent << endl;
       }
 
       if(feof(file)){
-        cout << "End of file\n";
+        cout << "End of file\n" << "Messages sent: " << totalMsgSent << endl;
         break;
       }
     }
