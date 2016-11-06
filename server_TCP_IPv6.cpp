@@ -150,7 +150,7 @@ class server {
     DIR *pd = 0;
     struct dirent *pdirent = 0;
     std::string message;
-    char buffer[bufferSize];
+    char buffer[bufferSize + 1];
     int sendPosition, bytesLeft;
     pd = opendir(dir);
     ssize_t numBytesSent;
@@ -169,7 +169,7 @@ class server {
       bytesLeft = message.size();
       sendPosition = 0;
       while(bytesLeft > 0){
-        chunck_size = bytesLeft > bufferSize? bufferSize : bytesLeft;
+        chunck_size = bytesLeft > bufferSize ? bufferSize : bytesLeft;
         memcpy(buffer, message.c_str() + sendPosition, chunck_size);
         numBytesSent = send(client_fd, message.c_str() + sendPosition, chunck_size, 0);        
         if (numBytesSent < 0){

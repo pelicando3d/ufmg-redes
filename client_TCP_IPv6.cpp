@@ -98,6 +98,7 @@ char* response_list() {
   unsigned int totalBytesRcvd = 0; // Count of total bytes received
   unsigned int numBytes = 0;
   char *response = (char*) malloc(buffer_size);
+  response[0] = '\0';
   char buffer[buffer_size];
 
   while (1) {
@@ -117,8 +118,8 @@ unsigned int response_get() {
   unsigned int numBytes = 0;  
 
   FILE *file = fopen(filename, "w+"); // file to be downloaded will be written here
+  if (file == NULL) { cout << "Erro abrindo arquivo." << endl; exit(0); }
   char buffer[buffer_size+1]; // I/O buffer
-  // FILE *file = fopen("teste_escrita", "ab"); // file to be downloaded will be written here
 
   while (1) {
     numBytes = recv(sock, buffer, buffer_size, 0);
@@ -150,7 +151,6 @@ char* prepare_message_list () {
 
 void list_files(char *raw_response) {
   int i = 0;
-  printf("raw:\n%s\n",raw_response);
   printf("\nLista de arquivos disponiveis para baixar: \n");
   while(1){   
     if(raw_response[i] == '\\' && raw_response[i+1] == '0') break;
