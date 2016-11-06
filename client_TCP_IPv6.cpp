@@ -13,6 +13,7 @@
 #include <dirent.h>
 #include <netdb.h>
 #include <fstream>
+#include <sstream>
 
 using namespace std;
 
@@ -35,6 +36,13 @@ class client {
   int sock;
   char *message;
   struct timeval t0, t1;
+
+    template <typename T>
+  std::string to_string(T value){
+    std::ostringstream os ;
+    os << value ;
+    return os.str() ;
+  }
 
   void connect_to_server (){
                /* Obtain address(es) matching host/port */
@@ -194,7 +202,8 @@ void list_files(char *raw_response) {
 void send_message() {
   // enviando mensagem para o servidor 
   size_t messageLen = strlen(message); // Determine input length
-  ssize_t nbytes_sent = send(sock, message, messageLen, 0);
+  std::string s = message + to_string("\\0");
+  ssize_t nbytes_sent = send(sock, s.c_str(), s.size(), 0); //FIX SEND CHUCK
   
   if (nbytes_sent < 0)
     cerr << "send() failed";

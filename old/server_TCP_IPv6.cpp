@@ -84,26 +84,31 @@ class server {
     }
   }
  
+  void send_message (std::string message){
+    send (client_fd, message.c_str(), strlen (message.c_str()), 0);
+  }
  
   std::string receive_message () const{
+    unsigned int totalBytesRcvd = 0; // Count of total bytes received
+    unsigned int numBytes = 0;
+    std::string msg;
     char buffer[bufferSize];
-    //memset (buffer, '\0', bufferSize);
+    memset (buffer, '\0', bufferSize);
     int nbytes;
-    std::string msg, end("\\0");
-
-    while( nbytes = recv (client_fd, buffer, bufferSize, 0) ){      
-      //cout << "recebido: " << buffer << "," << nbytes << endl;
-      if (nbytes < 0){
-        cout << "recv() failed\n";
-        return std::string();
-      }
-      buffer[nbytes] = '\0';
-      msg += buffer;
-      if (nbytes > 1 and buffer[nbytes-2] == '\\' and buffer[nbytes-1] == '0'){        
-        return msg;
-      }
-    }
  
+    while(true){
+      cout << "Vai enviar" << endl;
+      nbytes = recv (client_fd, buffer, bufferSize - 1, 0);
+      cout << "recebido: " << buffer << "(" << nbytes << ")" << endl;
+      if (nbytes < 0){
+        break;
+      }else{
+        msg += buffer;  
+      } 
+      if(msg == "list") return msg;
+      
+    }
+    return msg; 
   }
  
  public:
@@ -177,22 +182,16 @@ class server {
     numBytesSent = send(client_fd, "\\0", 2, 0);
   }
 
-  void send_file(string name){
+  void send_file(string filename){
     char buffer[bufferSize];
-    std::string filename = "";
-    for (int i = 0; i < name.size(); i++){
-      if(name.c_str()[i] == '\\' && name.c_str()[i+1] == '0') break;
-      filename += name.c_str()[i];
-    }
-    filename = to_string(dir) + to_string("/") + filename;
     FILE *file = fopen(filename.c_str(), "rb"); // open in binary mode
     if(file == NULL) cout << "Erro ao abrir o arquivo " << filename << endl;
     unsigned int bytesRead = 0;
     unsigned int totalBytesSent = 0;
     
     ssize_t nElem = 0;
-    while(true) {
-      nElem = fread(&buffer, sizeof(char), bufferSize, file); 
+    while(1) {
+      nElem = fread(&buffer, sizeof(char), bufferSize, file);        
       if (nElem <= 0 && !feof(file)) { 
         cout << "Reading error. Bytes read: " << bytesRead << endl; 
         return;
@@ -216,22 +215,24 @@ class server {
 
   bool receive_from_client (){
     std::string str;
-    str = receive_message();
-    if(str == "list\\0"){
-      send_filelist();        
-      return true;
-    //if string starts with get
-    }else if(str.compare(0, 3, "get") == 0){
-   		//gets filename
-	   	string filename = str.substr(4, str.length() - 4);
-      send_file(filename);
-      return true;
+    while (true){
+      str = receive_message();
+      if(str == "list"){
+        send_filelist();        
+        return true;
+      //if string starts with get
+      }else if(str.compare(0, 3, "get") == 0){
+     		//gets filename
+				string filename = str.substr(4, str.length() - 4);
+        send_file(filename);
+        return true;
+      }
     }
     return false;
   }
  
   void close_connection_with_client (){
-    cout << "close connection, socket value: " << socket_fd << endl;
+    //cout << "close connection, socket value: " << socket_fd << endl;
     close(client_fd);
   }
    

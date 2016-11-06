@@ -1,6 +1,6 @@
-all: server_TCP_IPv4.c client_TCP_IPv4.c
+all: server_TCP_IPv6.cpp client_TCP_IPv6.cpp
 	g++ -g server_TCP_IPv6.cpp -o server
-	g++ -g client_TCP_IPv6.cc -o client
+	g++ -g client_TCP_IPv6.cpp -o client
 
 clean:
 	rm -f server client
