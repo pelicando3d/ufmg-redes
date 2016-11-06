@@ -14,6 +14,7 @@
 #include <fstream>
 #include <dirent.h>
 #include <bitset>
+#include <pthread.h>
 
 
 using namespace std;
@@ -92,7 +93,7 @@ class server {
     std::string msg, end("\\0");
 
     while( nbytes = recv (client_fd, buffer, bufferSize, 0) ){      
-      //cout << "recebido: " << buffer << "," << nbytes << endl;
+      cout << "recebido: " << buffer << "," << nbytes << endl;
       if (nbytes < 0){
         cout << "recv() failed\n";
         return std::string();
@@ -108,7 +109,7 @@ class server {
  
  public:
   int socket_fd;
-  server (char* port, char* buffer, char* dir){
+  void initialize (char* port, char* buffer, char* dir){
     this->port = atoi(port);
     this->bufferSize = atoi(buffer);
     this->dir = dir;
@@ -215,6 +216,7 @@ class server {
   }
 
   bool receive_from_client (){
+    cout << "entrou na receive\n";
     std::string str;
     str = receive_message();
     if(str == "list\\0"){
@@ -237,10 +239,44 @@ class server {
    
 };
  
+typedef struct {
+  server s;
+  bool status;
+} thread_arg, * ptr_thread_arg;
+
+void* create_thread(void *arg) {
+  ptr_thread_arg argument = (ptr_thread_arg)arg;
+  cout << "entrou na thread\n";
+  bool status = argument->s.receive_from_client();
+  argument->status = status;
+  if(status)
+    argument->s.close_connection_with_client();
+}
+
  
-int main (int argc, char* argv[]){
+int main_thread (int argc, char* argv[]){
+  int MAXTHREADS = 100;
+  pthread_t threads[MAXTHREADS];    // ponteiro para as threads criadas
+  thread_arg arguments; 
+  int current_thread = 0;
+  server s;
+
+  s.initialize(argv[1], argv[2], argv[3]);  
+  // server s;
+  s.listen_port();
+  while (true){
+    if(current_thread >= MAXTHREADS) current_thread = 0;
+    s.accept_connection();
+    arguments.s = s;
+    pthread_create(&(threads[current_thread++]), NULL, create_thread, &(arguments));
+  }
+  return 0;
+}
+
+int main_normal (int argc, char* argv[]){
  
-  server s (argv[1], argv[2], argv[3]);
+  server s;
+  s.initialize(argv[1], argv[2], argv[3]);
   // server s;
   s.listen_port();
   while (true){
@@ -251,8 +287,11 @@ int main (int argc, char* argv[]){
         break;
     } 
     s.close_connection_with_client();
-  }
- 
- 
+  } 
   return 0;
+}
+
+int main(int a, char **b){
+  return main_thread(a,b);
+  //return main_normal(a,b);
 }
