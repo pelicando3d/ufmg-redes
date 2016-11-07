@@ -19,6 +19,7 @@
 
 using namespace std;
 
+void die(int code);
 
 class server {
  
@@ -39,6 +40,7 @@ class server {
     return os.str() ;
   }
   
+
   void create_server_socket (){
  
     struct addrinfo hints;
@@ -53,8 +55,8 @@ class server {
      
     s = getaddrinfo(NULL, cport, &hints, &result);
     if (s != 0) {
-       fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
-       exit(EXIT_FAILURE);
+       //fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+       die(11);
     }
  
     /* getaddrinfo() returns a list of address structures.
@@ -80,8 +82,7 @@ class server {
     }
  
     if (not valid_connection) {
-      perror ("Erro ao criar servidor");
-      exit (1);
+      die(3); //Error start server
     }
   }
  
@@ -93,11 +94,11 @@ class server {
     bool signal = false;
     std::string msg, end("\\0");
 
-    while( nbytes = recv (client_fd, buffer, bufferSize, 0) ){      
-      cout << "recebido: " << buffer << "," << nbytes << endl;
+    while( (nbytes = recv (client_fd, buffer, bufferSize, 0)) ){      
+      //cout << "recebido: " << buffer << "," << nbytes << endl;
       if (nbytes < 0){
-        cout << "recv() failed\n";
-        return std::string();
+        die(5); // Error accept
+        //return std::string();
       }
       buffer[nbytes] = '\0';
       msg += buffer;
@@ -108,7 +109,7 @@ class server {
       if(buffer[nbytes-1] == '\\')
         signal = true;
     }
- 
+    return std::string(); 
   }
  
  public:
@@ -122,31 +123,30 @@ class server {
   }
  
   ~server (){
-    //cout << " chamou o destrutor\n ";
     //close (socket_fd);
-    // std::cout << "Fechou servidor\n";
+    // std::cout << "Servidor fechado\n";
   }
  
   void listen_port (){
     if (listen (socket_fd, 1) < 0){
-      cout << "Erro ao iniciar listener\n";
+      die(4); //Error listen
     }else{
       cout << "Listen() - Permitindo que socket ouça requisições de conexões!\nAguardando conexão...\n";
     }    
   }
  
   void accept_connection (){
-    cout << " fd do server: " << socket_fd << endl;
+    cout << " FD do Sevidor: " << socket_fd << endl;
     client_fd = accept (socket_fd, (struct sockaddr*)&(client_socket), &(len));
     if (client_fd < 0){
-      cout << "accept() failed\n";
+      die(5); // Error accept
     }else{
       cout << "Accept() - Conexão recebida e aceita!\n";
     }
-    cout << "cliente fd: " << client_fd << endl;
+    cout << "FD do Cliente: " << client_fd << endl;
   }
  
-  bool send_filelist(){
+  void send_filelist(){
     DIR *pd = 0;
     struct dirent *pdirent = 0;
     std::string message;
@@ -157,13 +157,13 @@ class server {
     int chunck_size;
 
     if(pd == NULL) {
-      // ERROR: wrong path
-      return false; // define an erro CODE
+      // ERROR: wrong path or file doesnt exist
+      die(8);
     }  
 
-    cout << "Sending listDir to client id: " << client_fd << endl;
+    cout << "Enviando lista de arquivos para o cliente: " << client_fd << endl;
 
-    while (pdirent=readdir(pd)){
+    while ((pdirent=readdir(pd))){
       //int n = sprintf(tmpBuf, "$%lu$%s", strlen(pdirent->d_name), pdirent->d_name);
       message = to_string(pdirent->d_name) + "\\n";
       bytesLeft = message.size();
@@ -173,11 +173,10 @@ class server {
         memcpy(buffer, message.c_str() + sendPosition, chunck_size);
         numBytesSent = send(client_fd, message.c_str() + sendPosition, chunck_size, 0);        
         if (numBytesSent < 0){
-          cout << "send() failed";
-          exit(EXIT_FAILURE);
-        }else if(bytesLeft < 0){
+          die(7); //error send
+        }/*else if(bytesLeft < 0){
           cout << "send() - Enviando mensagem para o cliente (" << pdirent->d_name << ")!\n";
-        }
+        }*/
         sendPosition += numBytesSent;
         bytesLeft -= numBytesSent;        
       }      
@@ -188,29 +187,31 @@ class server {
   void send_file(string name){
     char buffer[bufferSize];
     std::string filename = "";
-    for (int i = 0; i < name.size(); i++){
+    for (unsigned i = 0; i < name.size(); i++){
       if(name.c_str()[i] == '\\' && name.c_str()[i+1] == '0') break;
       filename += name.c_str()[i];
     }
     filename = to_string(dir) + to_string("/") + filename;
     FILE *file = fopen(filename.c_str(), "rb"); // open in binary mode
-    if(file == NULL) cout << "Erro ao abrir o arquivo " << filename << endl;
-    unsigned int bytesRead = 0;
+    
+    if(file == NULL)
+      die(8); //file doesnt exist
+
+    //unsigned int bytesRead = 0;
     unsigned int totalBytesSent = 0;
     unsigned int totalMsgSent = 0;
     
     ssize_t nElem = 0;
-    cout << "Sending file: " << filename << " to client id: " << client_fd << endl;
+    cout << "Enviando arquivo: " << filename << " para o cliente: " << client_fd << endl;
     while(true) {
       nElem = fread(&buffer, sizeof(char), bufferSize, file); 
       if (nElem <= 0 && !feof(file)) { 
-        cout << "Reading error. Bytes read: " << bytesRead << endl; 
-        return;
+        die(9); // reading error;
       }
 
       ssize_t numBytesSent = send(client_fd, buffer, nElem, 0);
       if (numBytesSent < 0){
-        cout << "send() failed"; break;
+        die(7); //error send
       }else{
         totalBytesSent += numBytesSent;
         totalMsgSent += 1;
@@ -218,20 +219,20 @@ class server {
       }
 
       if(feof(file)){
-        cout << "End of file\n";
-        cout << totalMsgSent << endl;
+        /*cout << "End of file\n";
+        cout << totalMsgSent << endl;*/
         break;
       }
     }
+    cout << "Arquivo: " << filename << " enviado para o cliente: " << client_fd << endl;
     fclose(file);
   }
 
   bool receive_from_client (){
-    cout << "entrou na receive\n";
     std::string str;
     str = receive_message();
     if(str == "list\\0"){
-      send_filelist();        
+      send_filelist();
       return true;
     //if string starts with get
     }else if(str.compare(0, 3, "get") == 0){
@@ -244,7 +245,7 @@ class server {
   }
  
   void close_connection_with_client (){
-    cout << "close connection, socket value: " << socket_fd << endl;
+    cout << "Conexao fechada, id socket: " << socket_fd << endl;
     close(client_fd);
   }
    
@@ -258,13 +259,18 @@ typedef struct {
 
 void* create_thread(void *arg) {
   ptr_thread_arg argument = (ptr_thread_arg)arg;
-  cout << "entrou na thread - id: " <<argument->id << "\n";
+  cout << "Thread ID: " <<argument->id << "\n";
   bool status = argument->s.receive_from_client();
   argument->status = status;
   if(status)
     argument->s.close_connection_with_client();
 }
 
+void catch_errors(int argc, char** argv){
+  if(argc < 4){
+    die(1);
+  }
+}
  
 int main (int argc, char* argv[]){
   int MAXTHREADS = 100;
@@ -272,6 +278,8 @@ int main (int argc, char* argv[]){
   thread_arg arguments[MAXTHREADS]; 
   int current_thread = 0;
   server s;
+
+  catch_errors(argc, argv);
 
   s.initialize(argv[1], argv[2], argv[3]);  
   // server s;
@@ -287,3 +295,43 @@ int main (int argc, char* argv[]){
   return 0;
 }
 
+void die(int code){
+  switch(code){
+    case 1:
+      cerr << "Erro: -1 - Descrição: Erros nos argumentos de entrada\n";
+      exit(-1);        
+    case 2:
+      cerr << "Erro: -2 - Descrição: Erro de criação de socket\n" ;
+      exit(-2);
+    case 3:
+      cerr << "Erro: -3 - Descrição: Erro de bind - Porta ja utilizada\n" ;
+      exit(-3);
+    case 4:
+      cerr << "Erro: -4 - Descrição: Erro de listen\n" ;
+      exit(-4);
+    case 5:
+      cerr << "Erro: -5 - Descrição: Erro de accept\n" ;
+      exit(-5);
+    case 6:
+      cerr << "Erro: -6 - Descrição: Erro de connect\n" ;
+      exit(-6);
+    case 7:
+      cerr << "Erro: -7 - Descrição: Erro de comunicação com servidor/cliente\n" ;
+      exit(-7);
+    case 8:
+      cerr << "Erro: -8 - Descrição: Arquivo solicitado não encontrado\n" ;
+      exit(-8);
+    case 9:
+      cerr << "Erro: -9 - Descrição: Erro em ponteiro\n" ;
+      exit(-9);
+    case 10:
+      cerr << "Erro: -10 - Descrição: Comando de clienteFTP não existente\n" ;
+      exit(-10);
+    case 11:
+      cerr << "Erro: -11 - Descrição: Problema ai extrair informacoes de getaddrinfo\n" ;
+      exit(-11);
+    default:
+      cerr << "Erro: -999 - Descrição: Error nao listado\n" ;
+      exit(-999);
+  }
+}

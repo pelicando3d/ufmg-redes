@@ -6,10 +6,10 @@
 ########           Gabriel Miranda Pedrosa         #########
 ############################################################
 
-client_TCP_IPv6.cpp (client):
+client_TCP_IPv6.cpp (clienteFTP):
    Codigo do nosso cliente, escrito em C++ e utilizando IPv6
 
-server_TCP_IPv6.cpp (server):
+server_TCP_IPv6.cpp (servidorFTP):
    Codigo do nosso servidor, escrito em C++ e utilizando IPv6
 
 
@@ -27,8 +27,8 @@ para remover os binários gerados pelo processo de compilação
 
 
 ####### Compilação manual #######
-  g++ -g server_TCP_IPv6.cpp -o server -lpthread                                                                 
-  g++ -g client_TCP_IPv6.cpp -o client 
+  g++ -g server_TCP_IPv6.cpp -o servidorFTP -lpthread                                                                 
+  g++ -g client_TCP_IPv6.cpp -o clienteFTP 
 
 
 
@@ -36,10 +36,10 @@ para remover os binários gerados pelo processo de compilação
 
 ####### EXECUÇÃO #######
 
-./server <porta> <tamanho_buffer> <diretorio>
+./servidorFTP <porta> <tamanho_buffer> <diretorio>
 
-./client list <ip_servidor> <porta> <tamanho_buffer>
-./client get <nome_arquivo> <ip_servidor> <porta> <tamanho_buffer>
+./clienteFTP list <ip_servidor> <porta> <tamanho_buffer>
+./clienteFTP get <nome_arquivo> <ip_servidor> <porta> <tamanho_buffer>
 
 
 Caso esteja executando ambas aplicações na mesma máquina pode-se 

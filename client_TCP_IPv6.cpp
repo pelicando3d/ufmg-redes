@@ -17,6 +17,8 @@
 
 using namespace std;
 
+void die(int code);
+
 class client {
 
  private:
@@ -37,12 +39,14 @@ class client {
   char *message;
   struct timeval t0, t1;
 
-    template <typename T>
+  template <typename T>
   std::string to_string(T value){
     std::ostringstream os ;
     os << value ;
     return os.str() ;
   }
+
+
 
   void connect_to_server (){
                /* Obtain address(es) matching host/port */
@@ -76,17 +80,17 @@ class client {
         break;
       }else{
         // cout << "connect() failed";
+        die(6);
       }
 
        close(server_fd);
     }
 
-    if (rp == NULL) {               /* No address succeeded */
-       fprintf(stderr, "Could not connect\n");
-       exit(EXIT_FAILURE);
+    if (rp == NULL) { // No address succeeded 
+       die(6);
     }
 
-    freeaddrinfo(result);           /* No longer needed */
+    freeaddrinfo(result); 
 
 
   }
@@ -101,11 +105,15 @@ char* response_list() {
   response[0] = '\0';
   char buffer[buffer_size];
 
-  while (1) {
-    numBytes = recv(sock, buffer, buffer_size - 1, 0);
-    if (numBytes <= 0) break;
+  while (true) {
+    numBytes = recv(sock, buffer, buffer_size - 1, 0);    
+    if (numBytes == 0)
+      break;
+    if(numBytes < 0)
+      die(7);
     buffer[numBytes] = '\0';
-    if (totalBytesRcvd) response = (char*) realloc(response, strlen(response) + strlen(buffer) + 1);
+    if (totalBytesRcvd)
+      response = (char*) realloc(response, strlen(response) + strlen(buffer) + 1);
     strcat(response, buffer);
     totalBytesRcvd += numBytes;
   }
@@ -118,12 +126,19 @@ unsigned int response_get() {
   unsigned int numBytes = 0;  
 
   FILE *file = fopen(filename, "w+"); // file to be downloaded will be written here
-  if (file == NULL) { cout << "Erro abrindo arquivo." << endl; exit(0); }
+  
+  if (file == NULL) // Invalid file or file not found
+    die(8);
+
   char buffer[buffer_size+1]; // I/O buffer
 
-  while (1) {
+  while (true) {
     numBytes = recv(sock, buffer, buffer_size, 0);
-    if (numBytes <= 0) break;
+    if (numBytes == 0)
+      break;
+    if (numBytes < 0)
+      die(7);
+
     fwrite(&buffer, 1, numBytes, file); // writes file
     totalBytesRcvd += numBytes;
   }
@@ -132,12 +147,17 @@ unsigned int response_get() {
 }
 
 //////////////////////////////////
-// SEÇÃO REFERENTE AOS COMANDOS //
+// SECTION TO HANDLE COMMANDS   //
 //////////////////////////////////
 
 char* prepare_message_get () {
   int msgLen = 5 + strlen(filename);
   char* message = (char*) malloc(msgLen * sizeof(char));
+
+  if (message == NULL)
+    die(999); //Error while allocating memory
+
+
   strcpy(message, "get ");
   strcat(message, filename);
   return message;
@@ -145,21 +165,25 @@ char* prepare_message_get () {
 
 char* prepare_message_list () {
   char* message = (char*) malloc(5 * sizeof(char));
+
+  if (message == NULL)
+    die(999); //Error while allocating memory
+
   strcpy(message, "list");
   return message;
 }
 
 void list_files(char *raw_response) {
   int i = 0;
-  printf("\nLista de arquivos disponiveis para baixar: \n");
-  while(1){   
+  //cout << "\nLista de arquivos disponiveis para baixar: \n";
+  while(true){   
     if(raw_response[i] == '\\' && raw_response[i+1] == '0') break;
     if(raw_response[i] == '\\' && raw_response[i+1] == 'n'){
-      printf("\n"); 
+      cout << endl;
       i++;
     }
     else
-      printf("%c", raw_response[i]);    
+      cout << raw_response[i];    
     i++;
   }  
 }
@@ -178,13 +202,12 @@ void list_files(char *raw_response) {
 
     char hostname[100];
     size_t len = 100;
-    //gethostname (hostname, len);
+    gethostname (hostname, len);
   }
 
 
   ~client (){
     //close (server_fd);
-    // std::// cout << "Fechou cliente\n";
   }
 
 
@@ -207,13 +230,15 @@ void send_message() {
   pos = len = 0;
 
   while(bytesLeft) {
-    len = bytesLeft > buffer_size ? buffer_size : bytesLeft;
+    len = bytesLeft > (unsigned)buffer_size ? buffer_size : bytesLeft;
     ssize_t nbytes_sent = send(sock, s.c_str() + pos, len, 0); 
     
     if (nbytes_sent < 0)
-      cerr << "send() failed";
+      //cerr << "send() failed";
+      die(7);
     else if (nbytes_sent != len)
-      cerr << "send()", "sent unexpected number of bytes";
+      //cerr << "sent unexpected number of bytes";
+      die(7);
     else {
       bytesLeft -= nbytes_sent;
       pos += nbytes_sent;
@@ -230,7 +255,7 @@ void send_message() {
       float elapsed = ((float)(sec)*1000 + (float)(micro)/1000) / 1000;
       float kbps = numBytes/elapsed;
       //printf("Arquivo %s\tBuffer %5u byte, %10.2f kbps (%u bytes em %3u.%06u s) %3.6f(s)\n", filename, buffer_size, kbps, numBytes, sec, micro);
-      printf("Arquivo %s\tBuffer %5u byte, %10.2f kbps (%u bytes em %3.6f s)\n", filename, buffer_size, kbps, numBytes, elapsed);
+      printf("Arquivo %s\tBuffer %u bytes, %10.2f kbps (%u bytes em %3.6f s)\n", filename, buffer_size, kbps, numBytes, elapsed);
       // printf("%5u %10.2f %u %3.6f\n", buffer_size, kbps, numBytes, elapsed);
       //Utilizando o segundo printf, porque o primeiro retorna alguns valores errados em alguns casos.
 
@@ -246,17 +271,15 @@ void send_message() {
 };
 
 
-
-
 void catch_errors(int argc, char** argv){
   if(argc < 5){
-    cerr << "Number of arguments is incorrect!";
+    die(1);
   }
   if (!strcmp(argv[1], "get") && argc != 6) {
-    cerr << "get <Filename> <Server Address> <Server Port> <Buffer Size>";
+    die(11);
   }
   if (!strcmp(argv[1], "list") && argc != 5) {
-    cerr << "list <Server Address> <Server Port> <Buffer Size>";
+    die(12);    
   }
 }
 
@@ -272,4 +295,49 @@ int main (int argc, char* argv[]){
   c.close_connection_with_server();
   
   return 0;
+}
+
+
+void die(int code){
+  switch(code){
+    case 1:
+      cerr << "Erro: -1 - Descrição: Erros nos argumentos de entrada\n";
+      exit(-1);        
+    case 2:
+      cerr << "Erro: -2 - Descrição: Erro de criação de socket\n" ;
+      exit(-2);
+    case 3:
+      cerr << "Erro: -3 - Descrição: Erro de bind\n" ;
+      exit(-3);
+    case 4:
+      cerr << "Erro: -4 - Descrição: Erro de listen\n" ;
+      exit(-4);
+    case 5:
+      cerr << "Erro: -5 - Descrição: Erro de accept\n" ;
+      exit(-5);
+    case 6:
+      cerr << "Erro: -6 - Descrição: Erro de connect\n" ;
+      exit(-6);
+    case 7:
+      cerr << "Erro: -7 - Descrição: Erro de comunicação com servidor/cliente\n" ;
+      exit(-7);
+    case 8:
+      cerr << "Erro: -8 - Descrição: Arquivo solicitado não encontrado\n" ;
+      exit(-8);
+    case 9:
+      cerr << "Erro: -9 - Descrição: Erro em ponteiro\n" ;
+      exit(-9);
+    case 10:
+      cerr << "Erro: -10 - Descrição: Comando de clienteFTP não existente\n" ;
+      exit(-10);
+    case 11:
+      cerr << "Erro: -11 - Descrição: Commando correto -> get <Filename> <Server Address> <Server Port> <Buffer Size>\n";
+      exit(-11);
+    case 12:
+      cerr << "Erro: -12 - Descrição: Commando correto -> list <Server Address> <Server Port> <Buffer Size>\n";
+      exit(-12);
+    default:
+      cerr << "Erro: -999 - Descrição: Error nao listado\n" ;
+      exit(-999);
+  }
 }
