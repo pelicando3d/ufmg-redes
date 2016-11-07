@@ -87,7 +87,7 @@ class server {
  
  
   std::string receive_message () const{
-    char buffer[bufferSize];
+    char buffer[bufferSize + 1];
     //memset (buffer, '\0', bufferSize);
     int nbytes;
     bool signal = false;
@@ -218,7 +218,8 @@ class server {
       }
 
       if(feof(file)){
-        cout << "End of file\n" << "Messages sent: " << totalMsgSent << endl;
+        cout << "End of file\n";
+        cout << totalMsgSent << endl;
         break;
       }
     }

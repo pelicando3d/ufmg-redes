@@ -71,11 +71,11 @@ class client {
            continue;
 
       if (connect(server_fd, rp->ai_addr, rp->ai_addrlen) != -1){
-        cout << "connect() - Estabelecendo conexão...\n";
+        // cout << "connect() - Estabelecendo conexão...\n";
         sock = server_fd;
         break;
       }else{
-        cout << "connect() failed";
+        // cout << "connect() failed";
       }
 
        close(server_fd);
@@ -184,7 +184,7 @@ void list_files(char *raw_response) {
 
   ~client (){
     //close (server_fd);
-    // std::cout << "Fechou cliente\n";
+    // std::// cout << "Fechou cliente\n";
   }
 
 
@@ -201,16 +201,24 @@ void list_files(char *raw_response) {
   // conecta com o servidor e envia a mensagem especificada via parametro
 void send_message() {
   // enviando mensagem para o servidor 
-  size_t messageLen = strlen(message); // Determine input length
   std::string s = message + to_string("\\0");
-  ssize_t nbytes_sent = send(sock, s.c_str(), s.size(), 0); //FIX SEND CHUCK
-  
-  if (nbytes_sent < 0)
-    cerr << "send() failed";
-  else if (nbytes_sent != messageLen)
-    cerr << "send()", "sent unexpected number of bytes";
-  else
-    cout << "send() - Enviando comando " << message << " para o servidor...\n";
+  unsigned int bytesLeft = s.length();
+  unsigned int pos, len;
+  pos = len = 0;
+
+  while(bytesLeft) {
+    len = bytesLeft > buffer_size ? buffer_size : bytesLeft;
+    ssize_t nbytes_sent = send(sock, s.c_str() + pos, len, 0); 
+    
+    if (nbytes_sent < 0)
+      cerr << "send() failed";
+    else if (nbytes_sent != len)
+      cerr << "send()", "sent unexpected number of bytes";
+    else {
+      bytesLeft -= nbytes_sent;
+      pos += nbytes_sent;
+    }
+  }
 }
 
   void receive_response(){
@@ -223,6 +231,7 @@ void send_message() {
       float kbps = numBytes/elapsed;
       //printf("Arquivo %s\tBuffer %5u byte, %10.2f kbps (%u bytes em %3u.%06u s) %3.6f(s)\n", filename, buffer_size, kbps, numBytes, sec, micro);
       printf("Arquivo %s\tBuffer %5u byte, %10.2f kbps (%u bytes em %3.6f s)\n", filename, buffer_size, kbps, numBytes, elapsed);
+      // printf("%5u %10.2f %u %3.6f\n", buffer_size, kbps, numBytes, elapsed);
       //Utilizando o segundo printf, porque o primeiro retorna alguns valores errados em alguns casos.
 
     } else {
@@ -255,14 +264,12 @@ int main (int argc, char* argv[]){
 
   catch_errors(argc, argv);
   
-
-  
   client c (argc, argv);
 
   c.init_transmission();
   c.send_message ();
   c.receive_response();
   c.close_connection_with_server();
-
+  
   return 0;
 }
