@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h> 
+#include <unistd.h>
 
 #define BUFSIZE 1024
 
@@ -122,10 +123,11 @@ int main(int argc, char **argv) {
     if (file == NULL) // Invalid file or file not found
       printf("erro abrir");
     int times = 0;
+    char ack[30];
     while (1) {
       n = recvfrom(sockfd, buf, buffer_size, 0, &serveraddr, &serverlen);
       times++;
-      printf("%d (%d)", n, times);
+//      printf("%d (%d)", n, times);
       if (n == 0)
         break;
       if (n < 0)
@@ -133,8 +135,16 @@ int main(int argc, char **argv) {
       if (n > 1 && buf[n-2] == '\\' && buf[n-1] == '0')
         break;
 
+      
+      /*if (times >= 2056){
+        printf("\n\n%s", buf);
+      }*/
+
       fwrite(buf, 1, n, file); // writes file
       totalBytesRcvd += n;
+      sprintf(ack, "ACK - %d", times);
+      numBytesSent = sendto(sockfd, ack, 30, 0, &serveraddr, serverlen);
+
     }
     fclose(file);
   

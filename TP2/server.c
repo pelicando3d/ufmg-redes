@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 
 #define BUFSIZE 1024
 typedef enum { false, true } bool;
@@ -112,6 +113,7 @@ int main(int argc, char **argv) {
     memset(filepath, '\0', sizeof(filepath));    
 
     printf("%s - %s \n\n", msg, buf);
+    printf("\t\tState 1\n");
     while( (n = recvfrom(sockfd, buf, buffer_size, 0, (struct sockaddr *) &clientaddr, &clientlen)) ){      
       totalBytes += n;
       totalBytesRec += strlen(buf);
@@ -178,6 +180,9 @@ int main(int argc, char **argv) {
 
     //cout << "Enviando arquivo: " << filename << " para o cliente.\n ";
     int times = 0;
+    printf("\t\tState 2\n");
+    int initiated = 0;
+    char ack[30];
     while(1) {
       printf("Lendo\n");
       nElem = fread(buf, sizeof(char), buffer_size, file); 
@@ -191,7 +196,13 @@ int main(int argc, char **argv) {
         break; // error leitura
       }
 
+      if(initiated){
+         n = recvfrom(sockfd, ack, 30, 0, (struct sockaddr *) &clientaddr, &clientlen);
+         printf("%s\n", ack);
+      }
       numBytesSent = sendto(sockfd, buf, chunck_size, 0, (struct sockaddr *) &clientaddr, clientlen);
+      initiated = 1;
+      
       times++;
 
       if (numBytesSent < 0){
@@ -207,7 +218,9 @@ int main(int argc, char **argv) {
       }
     }
     
-    numBytesSent = sendto(sockfd, "\\0", sizeof("\\0"), 0, (struct sockaddr *) &clientaddr, clientlen);
+    char *end = "\\0";
+    printf("\t\tState 3\n");
+    numBytesSent = sendto(sockfd, end, sizeof(end), 0, (struct sockaddr *) &clientaddr, clientlen);
     printf("Arquivo: %s enviado para o cliente em %d blocos\n", msg, times);
 
     fclose(file);    
