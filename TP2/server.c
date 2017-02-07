@@ -7,57 +7,60 @@
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include "tp_socket.h"
-
+#include <pthread.h>
+#include "timer.c"
 
 typedef enum { false, true } bool;
 
-typedef u_char  SwpSeqno;
+// typedef u_char  SwpSeqno;
 
-// sliding window protocol's header
-typedef struct {
-    SwpSeqno SeqNum;
-    SwpSeqno AckNum;
-    u_char Flags;
-} SwpHdr;
+// // sliding window protocol's header
+// typedef struct {
+//     SwpSeqno SeqNum;
+//     SwpSeqno AckNum;
+//     u_char Flags;
+// } SwpHdr;
 
-typedef struct {
-    Event  timeout; // event associated with send-timeout
-    char *msg;
-} sendQ_slot;
+// typedef struct {
+//     int timeout; // event associated with send-timeout
+//     char *msg;
+// } sendQ_slot;
 
-/* sender side state: */
-typedef struct {
-    SwpSeqno   LAR;        // seqno of last ACK received 
-    SwpSeqno   LFS;        // last frame sent 
-    int        SWS;        // sender window size
-    Semaphore  sendWindowNotFull;
-    SwpHdr     hdr;       // preinitialized header
-    sendQ_slot *sendQ;
-} SwpState;
+// /* sender side state: */
+// typedef struct {
+//     SwpSeqno   LAR;        // seqno of last ACK received 
+//     SwpSeqno   LFS;        // last frame sent 
+//     int        SWS;        // sender window size
+//     //sem_t  sendWindowNotFull;
+//     SwpHdr     hdr;       // preinitialized header
+//     sendQ_slot *sendQ;
+// } SwpState;
 
-// checar se o pacote recebido (seqno) está dentro do intervalo permitido
-static bool swpInWindow(SwpSeqno seqno, SwpSeqno min, SwpSeqno max) {
-    SwpSeqno pos, maxpos;
-    pos = seqno - min; /* pos *should* be in range [0..MAX)*/ 
-    maxpos = max - min + 1;/* maxpos is in range [0..MAX]*/ 
-    return pos < maxpos;
-}
+// // checar se o pacote recebido (seqno) está dentro do intervalo permitido
+// static bool swpInWindow(SwpSeqno seqno, SwpSeqno min, SwpSeqno max) {
+//     SwpSeqno pos, maxpos;
+//     pos = seqno - min; /* pos *should* be in range [0..MAX)*/ 
+//     maxpos = max - min + 1;/* maxpos is in range [0..MAX]*/ 
+//     return pos < maxpos;
+// }
 
-static int sendSWP(SwpState *state, Msg *frame) {
-    struct sendQ_slot *slot;
-    hbuf[HLEN];
+// static int sendSWP(SwpState *state, sem_t *frame) {
+//     struct sendQ_slot *slot;
+//     hbuf[HLEN];
 
-    /* wait for send window to open */
-    semWait(&state->sendWindowNotFull);
-    state->hdr.SeqNum = ++state->LFS;
-    slot = &state->sendQ[state->hdr.SeqNum % state->SWS];
-    store_swp_hdr(state->hdr, hbuf);
-    msgAddHdr(frame, hbuf, HLEN);
-    msgSaveCopy(&slot->msg, frame);
-    slot->timeout = evSchedule(swpTimeout, slot, SWP_SEND_TIMEOUT);
+//     /* wait for send window to open */
+//     semWait(&state->sendWindowNotFull);
+//     state->hdr.SeqNum = ++state->LFS;
+//     slot = &state->sendQ[state->hdr.SeqNum % state->SWS];
+//     store_swp_hdr(state->hdr, hbuf);
+//     msgAddHdr(frame, hbuf, HLEN);
+//     msgSaveCopy(&slot->msg, frame);
+//     slot->timeout = evSchedule(swpTimeout, slot, SWP_SEND_TIMEOUT);
     
-    return sendLINK(frame);
-}
+//     return sendLINK(frame);
+// }
+
+int LAR = 0;
 
 void error(char *msg) {
   perror(msg);
@@ -122,6 +125,27 @@ int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr, so_ad
 
     return ret;
 }
+
+pthread_t tid[1];
+
+int sw_sock;
+char *sw_buf;
+int sw_buf_size;
+struct sockaddr *to;
+struct sockaddr *from;
+
+
+void* receiveACKs(void *arg){
+    char *ack = malloc(10 * sizeof(char));
+    int i;
+    while(1){
+        int n = receive_datagram(sw_sock, sw_buf, sw_buf_size,  from, to);
+        memcpy(ack, sw_buf, 10);
+        LAR = atoi(ack);
+        printf("\t\tACK Recebido - %d\n", LAR);
+    }
+}
+
 
 
 int main(int argc, char **argv){
@@ -264,41 +288,110 @@ int main(int argc, char **argv){
 
     printf("\t\tState 2\n");
 
+    int err;
+    sw_sock = sock;
+    char *rec_buf = malloc(buffer_size * sizeof(char));
+    sw_buf = rec_buf;
+    sw_buf_size = buffer_size;
+    from =  &sin6 ;
+    to = localinfo->ai_addr;
+
+
+    err = pthread_create(&(tid[1]), NULL, &receiveACKs, NULL);
 
     /* enviando arquivo em chunks */
-    while(1) {        
-        nElem = fread(buf, sizeof(char), buffer_size, file);       
-        chunck_size =  nElem > buffer_size ? buffer_size : nElem;  
-        printf("chuck size: %d, strlen buf: %d, buf size: %d, nElen: %d\n", chunck_size, strlen(buf), buffer_size, nElem);
-  
-        if (nElem <= 0 && !feof(file)) { 
-          printf("Erro Leitura\n");
-          break; // error leitura Todo: mandar pra funcao
+    int seqId = 0;
+
+    int LFS = 0;
+    
+    int SeqNum = -1;
+    char *datagrama = malloc(buffer_size * sizeof(char));
+    int mayRead = 1;
+
+
+    while(1) {
+
+        if(mayRead){
+            nElem = fread(buf, sizeof(char), buffer_size-20, file);       
+            chunck_size =  nElem > buffer_size ? buffer_size : nElem;  
+            printf("chuck size: %d, strlen buf: %d, buf size: %d, nElen: %d\n", chunck_size, strlen(buf), buffer_size, nElem);
+      
+            if (nElem <= 0 && !feof(file)) { 
+              printf("Erro Leitura\n");
+              break; // error leitura Todo: mandar pra funcao
+            }
+
+            SeqNum++;
+            int crc = tcp_checksum(buf, chunck_size, &sin6, localinfo->ai_addr);
+            sprintf(datagrama, "%010d%010d%s", SeqNum, crc, buf);
+
+            LFS = SeqNum;
         }
 
-        numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *) &sin6, (struct sockaddr *)localinfo->ai_addr);
-  
-        initiated = true;
-        times++;
-  
-        if (numBytesSent < 0){
-          printf("Erro Envio\n");
-          break; // error sento
-        }else{
-          totalBytesSent += numBytesSent;
-          totalMsgSent += 1;
-        }
-  
-        if(feof(file)){
-          break;
-        }
-      }
-  
-  
+        if(LFS - LAR <= SWS){
+            mayRead = 1;
+
+            numBytesSent = send_datagram(sock, datagrama,  chunck_size, (struct sockaddr *) &sin6, (struct sockaddr *)localinfo->ai_addr);
+
+
+            /*signal(SIGALRM, stopWait_handler);
+            mysettimer(espera);*/
+
+
+    //         int done = 0;
+    //         int errno;
+    //         while (!done) {
+    //             errno = 0; /* Só por garantia */
+    //             fprintf(stderr,"Enviando PACOTE %d\n", times);
+    //             numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *) &sin6, (struct sockaddr *)localinfo->ai_addr);
+    //             //reenviarSW = 1;
+
+
+
+    //             if ( LFS - LAR > SWS ) {                
+    //                 /* chamadas de socket só retornam < 0 se deu erro */                
+    //                 if (errno==EINTR) {
+    //                     printf("\ninterrompida\n");
+    //                     /* uma chamada interrompida seria tratada aqui */
+    //                     errno = 0;
+    //                 } else if (errno) {
+    //                     perror("fgets");
+    //                     exit(1);
+    //                 } else if (feof(stdin)) {
+    //                     fprintf(stderr,"Entrada vazia.\n");
+    //                     exit(0);
+    //                 }
+    //             } else {
+    //                 printf("RETORNOU COM SUCESSO\n");
+    // //                reenviarSW = 0;
+    //                 done = 1;
+    //             }
+    //         }   
+
+
+            times++;
       
-      printf("Arquivo: %s enviado para o cliente em %d blocos\n", msg, times);
+            if (numBytesSent < 0){
+              printf("Erro Envio\n");
+              break; // error sento
+            }else{
+              totalBytesSent += numBytesSent;
+              totalMsgSent += 1;
+            }
+      
+            if(feof(file)){
+              break;
+            }
+        } else {
+            mayRead = 0;
+        }
+    }
   
-      fclose(file);    
+       
+          printf("Arquivo: %s enviado para o cliente em %d blocos\n", msg, times);
+    
+          fclose(file);    
+
    
   
   

@@ -4,7 +4,7 @@ client: client.o tp_socket.o
 	gcc -g client.o tp_socket.o -o c.app
 
 server: server.o tp_socket.o
-	gcc -g server.o tp_socket.o -o s.app
+	gcc -g -pthread server.o tp_socket.o -o s.app
 
 
 tp_socket.o: tp_socket.c tp_socket.h
