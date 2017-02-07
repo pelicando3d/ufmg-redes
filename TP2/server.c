@@ -11,6 +11,54 @@
 
 typedef enum { false, true } bool;
 
+typedef u_char  SwpSeqno;
+
+// sliding window protocol's header
+typedef struct {
+    SwpSeqno SeqNum;
+    SwpSeqno AckNum;
+    u_char Flags;
+} SwpHdr;
+
+typedef struct {
+    Event  timeout; // event associated with send-timeout
+    char *msg;
+} sendQ_slot;
+
+/* sender side state: */
+typedef struct {
+    SwpSeqno   LAR;        // seqno of last ACK received 
+    SwpSeqno   LFS;        // last frame sent 
+    int        SWS;        // sender window size
+    Semaphore  sendWindowNotFull;
+    SwpHdr     hdr;       // preinitialized header
+    sendQ_slot *sendQ;
+} SwpState;
+
+// checar se o pacote recebido (seqno) está dentro do intervalo permitido
+static bool swpInWindow(SwpSeqno seqno, SwpSeqno min, SwpSeqno max) {
+    SwpSeqno pos, maxpos;
+    pos = seqno - min; /* pos *should* be in range [0..MAX)*/ 
+    maxpos = max - min + 1;/* maxpos is in range [0..MAX]*/ 
+    return pos < maxpos;
+}
+
+static int sendSWP(SwpState *state, Msg *frame) {
+    struct sendQ_slot *slot;
+    hbuf[HLEN];
+
+    /* wait for send window to open */
+    semWait(&state->sendWindowNotFull);
+    state->hdr.SeqNum = ++state->LFS;
+    slot = &state->sendQ[state->hdr.SeqNum % state->SWS];
+    store_swp_hdr(state->hdr, hbuf);
+    msgAddHdr(frame, hbuf, HLEN);
+    msgSaveCopy(&slot->msg, frame);
+    slot->timeout = evSchedule(swpTimeout, slot, SWP_SEND_TIMEOUT);
+    
+    return sendLINK(frame);
+}
+
 void error(char *msg) {
   perror(msg);
   exit(1);
@@ -74,7 +122,6 @@ int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr, so_ad
 
     return ret;
 }
-
 
 
 int main(int argc, char **argv){
