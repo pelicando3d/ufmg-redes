@@ -11,7 +11,7 @@ tp_socket.o: tp_socket.c tp_socket.h
 	gcc -g -c tp_socket.c
 
 client.o: client.c
-	gcc -g -c client.c -Wall
+	gcc -g -c client.c
 
 
 server.o: server.c
