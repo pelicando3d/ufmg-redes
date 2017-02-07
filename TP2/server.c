@@ -132,7 +132,7 @@ int main(int argc, char **argv){
     int sin6len;   
     int portno; // id da porta
     int buffer_size; // tamanho do buffer
-    int window_size; // tamanho da janela
+    int SWS; // tamanho da janela
     char *dir; // diretorio a ser utilizado
     char *filepath; // path pro arquivo a ser enviado
     char *buf; // buffer p/ mensagem
@@ -148,7 +148,7 @@ int main(int argc, char **argv){
     /* Transferindo argumentos */
     portno = atoi(argv[1]);
     buffer_size = atoi(argv[2]);
-    window_size = atoi(argv[3]);
+    SWS = atoi(argv[3]);
     dir = argv[4];
     filepath = argv[4];
   
@@ -220,6 +220,13 @@ int main(int argc, char **argv){
             msg = realloc(msg, (strlen(msg)+n) * sizeof(char*));
             // ToDo: checar se memoria foi alocada de fato
       }
+
+    // Teste para falhas ACK nao chega e tem q retransmitir
+    //int t = 0;
+    /*printf("Aperte enter para mandar ACK");
+    scanf("%d", &t);*/
+
+    int _numBytesSent = send_datagram(sock, "ACK",  strlen("ACK"), (struct sockaddr *) &sin6, (struct sockaddr *)localinfo->ai_addr);
   
     msg[strlen(msg)-2] = '\0'; // remove o sinal de fim de mensagem \0 incluido no nome do arquivo
     printf("server received %d/%d bytes: %s\tsize of string: %d\n", totalBytesRec, totalBytes, msg, strlen(msg));
@@ -268,12 +275,6 @@ int main(int argc, char **argv){
           printf("Erro Leitura\n");
           break; // error leitura Todo: mandar pra funcao
         }
-  
-   /*     if(initiated == true){
-           //n = recvfrom(sockfd, ack, 30, 0, (struct sockaddr *) &clientaddr, &clientlen);
-           n = tp_recvfrom(sockfd, ack, 30, (struct sockaddr *) &clientaddr);
-           printf("%s\n", ack);
-        }*/
 
         numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *) &sin6, (struct sockaddr *)localinfo->ai_addr);
   

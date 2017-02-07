@@ -14,6 +14,7 @@
 #include <string.h>   /* para strlen */
 
 int    espera;
+int retrasmite = 0;
 
 void
 mysettimer(int milisegundos)
@@ -30,7 +31,8 @@ mysettimer(int milisegundos)
 void
 timer_handler(int signum)
 {
-    fprintf(stderr,"Anda logo!\n");
+    fprintf(stderr,"Retransmite!\n");
+    retrasmite = 1;
     /* Uma outra opção seria setar uma variável global
      * e testá-la no loop principal do programa, mas isso
      * só funcionaria nos casos onde a chamada bloqueada 
@@ -46,7 +48,10 @@ mysethandler(void)
     signal(SIGALRM,timer_handler);
 }
 
-int main(int argc, char* argv[]) {
+
+
+
+int main2(int argc, char* argv[]) {
     char   entrada[512];
     size_t elen;
     int    done; /* Controle do loop */
@@ -61,10 +66,10 @@ int main(int argc, char* argv[]) {
         errno = 0; /* Só por garantia */
         fprintf(stderr,"Escreva algo:\n");
         if (fgets(entrada,sizeof(entrada),stdin) == NULL ) {
-            /* fgets retorna erro se a entrada estava vazia ou se deu erro */
-            /* chamadas de socket só retornam < 0 se deu erro */
+         //    fgets retorna erro se a entrada estava vazia ou se deu erro 
+            // chamadas de socket só retornam < 0 se deu erro 
             if (errno==EINTR) {
-                /* uma chamada interrompida seria tratada aqui */
+                // uma chamada interrompida seria tratada aqui 
                 errno = 0;
             } else if (errno) {
                 perror("fgets");

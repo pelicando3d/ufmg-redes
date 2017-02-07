@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include "tp_socket.h"
+#include "timer.c"
 
 typedef enum { false, true } bool;
 
@@ -88,6 +89,10 @@ static int deliverSWP(SwpState state, Msg *frame) {
     return SUCCESS;
 }
 
+// ToDo: Implementar no servidor o caso de o ACK  final falhar
+
+int espera = 1000;
+
 void error(char *msg) {
     perror(msg);
     exit(0);
@@ -150,6 +155,21 @@ int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr, so_ad
 
 
     return ret;
+}
+
+int handler_sock;
+char *handler_buf;
+int handler_chunk_size;
+struct sockaddr *to, *from;
+int reenviarSW;
+
+
+void stopWait_handler(int signalid){
+    if(reenviarSW){
+        printf("\n\tReenviando Pacote\n");
+        int numBytesSent = send_datagram(handler_sock, handler_buf,  handler_chunk_size, to, from);
+        mysettimer(espera);
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -219,11 +239,60 @@ int main(int argc, char* argv[]) {
     msg_toSend = malloc((filename_size+5) * sizeof(char)); // Alocando variavel msg_toSend que tera o filename + id de fim de string
     strcat(filename, "\\0");
     bytesLeft = strlen(filename);
+
+    int wait_ack = 0;
+
+    size_t elen;
+    int    done; /* Controle do loop */
+
+
+    char entrada[1000];
       
+
     while(bytesLeft > 0){      
         chunck_size = bytesLeft > buffer_size ? buffer_size : bytesLeft;
         memcpy(buf, filename + sendPosition, chunck_size);      
-        numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)psinfo->ai_addr);
+        
+
+        handler_sock = sock;
+        handler_buf = buf;
+        handler_chunk_size = chunck_size;
+        to = (struct sockaddr *)psinfo->ai_addr;
+        from = (struct sockaddr *)psinfo->ai_addr;
+
+        signal(SIGALRM, stopWait_handler);
+        mysettimer(espera);
+
+
+        done = 0;
+        while (!done) {
+            errno = 0; /* Só por garantia */
+            //fprintf(stderr,"Enviando PACOTE 1 NOME\n");
+            numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)psinfo->ai_addr);
+            reenviarSW = 1;
+            if ( ( n = receive_datagram(sock, buf, buffer_size,  (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)localinfo->ai_addr) ) < 0 ) {                
+                /* chamadas de socket só retornam < 0 se deu erro */                
+                if (errno==EINTR) {
+                    printf("\ninterrompida\n");
+                    /* uma chamada interrompida seria tratada aqui */
+                    errno = 0;
+                } else if (errno) {
+                    perror("fgets");
+                    exit(1);
+                } else if (feof(stdin)) {
+                    fprintf(stderr,"Entrada vazia.\n");
+                    exit(0);
+                }
+            } else {
+                printf("RETORNOU COM SUCESSO\n");
+                reenviarSW = 0;
+                done = 1;
+            }
+        }
+
+        
+
+        wait_ack = 1;
         
         printf("Sent:            %s \t ", buf);
         if (numBytesSent < 0) 
