@@ -1,97 +1,90 @@
-/* 
- * udpclient.c - A simple UDP client
- * usage: udpclient <host> <port>
- */
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netdb.h> 
-#include <unistd.h>
+#include <netdb.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
+#include "tp_socket.h"
 
-#define BUFSIZE 1024
+#define MAXBUF 65536
 
-/* 
- * error - wrapper for perror
- */
 void error(char *msg) {
     perror(msg);
     exit(0);
 }
 
-int main(int argc, char **argv) {
-    int sockfd, portno, n;
-    int serverlen;
-    struct sockaddr_in serveraddr;
-    struct hostent *server;
-    char *hostname;
-    char *buf;
-    int buffer_size;
-    int window_size;
-    char *filename, msg_toSend;
-    int filename_size;
-    char *copyName;
+int main(int argc, char* argv[]) {
+  int sock;
+  int status;
+  struct addrinfo sainfo, *psinfo;
+  struct sockaddr_in6 sin6;
+  int sin6len;
+  char buffer[MAXBUF];
 
-    /* check command line arguments */
-    if (argc != 6) {
-       fprintf(stderr,"Uso: %s <nome ou IPv6 do servidor> <porto> <nome_arquivo ><tam_buffer> <tam_janela>\n", argv[0]);
-       exit(0);
-    }
-    hostname = argv[1];
-    portno = atoi(argv[2]);
-    filename = argv[3];
-    buffer_size = atoi(argv[4]);
-    window_size = atoi(argv[5]);
-    filename_size = strlen(filename);    
-    buf = (char*) malloc(buffer_size * sizeof(char));
-    copyName = (char*) malloc(filename_size + 5 * sizeof(char));
-    strcpy(copyName, "copy_");
-    strcat(copyName, filename);
+  int sockfd, portno, n;
+  int serverlen;
+  struct sockaddr_in serveraddr;
+  struct hostent *server;
+  char *hostname;
+  char *buf;
+  int buffer_size;
+  int window_size;
+  int filename_size;
+  char *filename, msg_toSend;  
+  int bytesLeft;
+  int sendPosition = 0;
+  int chunck_size;
+  int numBytesSent;
+  char *copyName;
 
-
-
-    /* socket: create the socket */
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) 
-        error("ERROR opening socket");
-
-    /* gethostbyname: get the server's DNS entry */
-    server = gethostbyname(hostname);
-    if (server == NULL) {
-        fprintf(stderr,"ERROR, no such host as %s\n", hostname);
-        exit(0);
-    }
-
-    /* build the server's Internet address */
-    bzero((char *) &serveraddr, sizeof(serveraddr));
-    serveraddr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, 
-    (char *)&serveraddr.sin_addr.s_addr, server->h_length);
-    serveraddr.sin_port = htons(portno);
-
-    /* get a message from the user */
-    bzero(buf, buffer_size);
-    printf("Requesting file: %s (%d)\n", filename, filename_size);
-    msg_toSend = malloc((filename_size+5) * sizeof(char)); // Alocando variavel msg_toSend que tera o filename + id de fim de string
-    //strcpy(msg_toSend, filename);
-    strcat(filename, "\\0");
+   /* check command line arguments */
+   if (argc != 6) {
+      fprintf(stderr,"Uso: %s <nome ou IPv6 do servidor> <porto> <nome_arquivo ><tam_buffer> <tam_janela>\n", argv[0]);
+      exit(0);
+   }
 
 
-    int bytesLeft = strlen(filename);
-    int sendPosition = 0;
-    int chunck_size;
-    int numBytesSent;
+  hostname = argv[1];
+  portno = atoi(argv[2]);
+  filename = argv[3];
+  buffer_size = atoi(argv[4]);
+  window_size = atoi(argv[5]);
+  filename_size = strlen(filename);    
+  buf = (char*) malloc(buffer_size * sizeof(char));
+  copyName = (char*) malloc(filename_size + 5 * sizeof(char));
+  strcpy(copyName, "copy_");
+  strcat(copyName, filename);
+  
 
-    /* send the message to the server */
-    serverlen = sizeof(serveraddr);
+  tp_init();
+
+  sock = tp_socket(portno);
+
+  if(sock < 0){     
+    printf("Error %d\n", sock); // Tem que corrigir o erro -1 do bind
+  }
+
+  memset(&sainfo, 0, sizeof(struct addrinfo));
+   
+  sainfo.ai_flags = 0;
+  sainfo.ai_family = PF_INET6;
+  sainfo.ai_socktype = SOCK_DGRAM;
+  sainfo.ai_protocol = IPPROTO_UDP;
+  status = getaddrinfo(hostname, argv[2], &sainfo, &psinfo);
+   
+  bzero(buf, buffer_size);
+  printf("Requesting file: %s (%d)\n", filename, filename_size);
+  msg_toSend = malloc((filename_size+5) * sizeof(char)); // Alocando variavel msg_toSend que tera o filename + id de fim de string
+  strcat(filename, "\\0");
+  bytesLeft = strlen(filename);
     
-    while(bytesLeft > 0){      
+  while(bytesLeft > 0){      
       chunck_size = bytesLeft > buffer_size ? buffer_size : bytesLeft;
       memcpy(buf, filename + sendPosition, chunck_size);      
-      numBytesSent = sendto(sockfd, buf, chunck_size, 0, &serveraddr, serverlen);
+      numBytesSent = tp_sendto(sock, buf,  chunck_size, (struct sockaddr *)psinfo->ai_addr);
+      
       printf("Sent:            %s \t ", buf);
       if (numBytesSent < 0) 
         error("ERROR in sendto");      
@@ -99,20 +92,13 @@ int main(int argc, char **argv) {
       bytesLeft -= numBytesSent;        
       printf("Bytes Sent: %d  -  Bytes Left: %d\n",numBytesSent , bytesLeft);
       memset(buf, '\0', strlen(buf)*sizeof(buf));
-    }    
-    printf("File requested\n");
-    
+ }    
+  printf("File requested\n");
 
 
-    /* print the server's reply */
-    /*
-    n = recvfrom(sockfd, buf, buffer_size, 0, &serveraddr, &serverlen);
-    if (n < 0) 
-      error("ERROR in recvfrom");
-    printf("Echo from server: %s (%d/%d)", buf, n, strlen(buf));
-*/
-    
-    int totalBytesRcvd = 0;
+
+
+  int totalBytesRcvd = 0;
 
     memset(buf, '\0', sizeof(buf));
 
@@ -125,7 +111,8 @@ int main(int argc, char **argv) {
     int times = 0;
     char ack[30];
     while (1) {
-      n = recvfrom(sockfd, buf, buffer_size, 0, &serveraddr, &serverlen);
+      //n = recvfrom(sockfd, buf, buffer_size, 0, &serveraddr, &serverlen);
+      n = tp_recvfrom(sock, buf, buffer_size,  (struct sockaddr *)psinfo->ai_addr);
       times++;
 //      printf("%d (%d)", n, times);
       if (n == 0)
@@ -143,12 +130,21 @@ int main(int argc, char **argv) {
       fwrite(buf, 1, n, file); // writes file
       totalBytesRcvd += n;
       sprintf(ack, "ACK - %d", times);
-      numBytesSent = sendto(sockfd, ack, 30, 0, &serveraddr, serverlen);
+      //numBytesSent = sendto(sockfd, ack, 30, 0, &serveraddr, serverlen);
+      numBytesSent = tp_sendto(sock, ack,  30,  (struct sockaddr *)psinfo->ai_addr);
 
     }
     fclose(file);
-  
 
 
-    return 0;
+
+
+  // free memory
+  freeaddrinfo(psinfo);
+  psinfo = NULL;
+
+  shutdown(sock, 2);
+  close(sock);
+  return 0;
 }
+

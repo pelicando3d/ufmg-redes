@@ -1,32 +1,33 @@
-/* 
- * udpserver.c - A simple UDP echo server 
- * usage: udpserver <port>
- */
-
 #include <stdio.h>
 #include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <netdb.h>
-#include <sys/types.h> 
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include <netdb.h>
+#include <stdlib.h>
+#include "tp_socket.h"
+
+#define MAXBUF 65536
 
 #define BUFSIZE 1024
 typedef enum { false, true } bool;
 
-/*
- * error - wrapper for perror
- */
 void error(char *msg) {
   perror(msg);
   exit(1);
 }
 
-int main(int argc, char **argv) {
-  int sockfd; // socket
+
+
+int main(int argc, char **argv)
+{
+   int sock;
+   int status;
+   struct sockaddr_in6 sin6;
+   int sin6len;
+   char buffer[MAXBUF];
+
+   int sockfd; // socket
   int portno; // id da porta
   int clientlen; /* byte size of client's address */
   int buffer_size; // tamanho do buffer
@@ -40,6 +41,8 @@ int main(int argc, char **argv) {
   char *hostaddrp; /* dotted decimal host addr string */
   int optval; /* flag value for setsockopt */
   int n; /* message byte size */
+  so_addr  addr;
+  char *hostname;
 
   // Checar argumentos da linha de comando
   if (argc != 5) {
@@ -52,19 +55,15 @@ int main(int argc, char **argv) {
   dir = argv[4];
   filepath = argv[4];
 
+  
 
-  // Alocando o buffer da mensagem de acordo com o bufsize
+  tp_init();
+  sock = tp_socket(portno);
 
+  
   buf = (char*) malloc(buffer_size * sizeof(char));
 
-  /* 
-   * socket: create the parent socket 
-   */
-  sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-  if (sockfd < 0) 
-    error("ERROR opening socket");
-
-  /* setsockopt: Handy debugging trick that lets 
+   /* setsockopt: Handy debugging trick that lets 
    * us rerun the server immediately after we kill it; 
    * otherwise we have to wait about 20 secs. 
    * Eliminates "ERROR on binding: Address already in use" error. 
@@ -73,38 +72,24 @@ int main(int argc, char **argv) {
   setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, 
        (const void *)&optval , sizeof(int));
 
-  /*
-   * build the server's Internet address
-   */
-  bzero((char *) &serveraddr, sizeof(serveraddr));
-  serveraddr.sin_family = AF_INET;
-  serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
-  serveraddr.sin_port = htons((unsigned short)portno);
 
-  /* 
-   * bind: associate the parent socket with a port 
-   */
-  if (bind(sockfd, (struct sockaddr *) &serveraddr, 
-     sizeof(serveraddr)) < 0) 
-    error("ERROR on binding");
 
-  // Onde a magica acontece: Espera sinal do cliente e envia arquivo
 
-  clientlen = sizeof(clientaddr);
+  memset(&sin6, 0, sin6len);
+  sin6len = sizeof(struct sockaddr_in6);
+  sin6.sin6_port = htons(portno);
+  sin6.sin6_family = AF_INET6;
+  sin6.sin6_addr = in6addr_any;
+  status = getsockname(sock, (struct sockaddr *)&sin6, &sin6len);
+
   char msg[9064];
   strcpy(msg, "");
   bool signal = false;
   int totalBytes = 0;
   int totalBytesRec = 0;
+
   while (1) {
-
-    /*
-     * recvfrom: receive a UDP datagram from a client
-     */
-
     bzero(buf, buffer_size);
-
-
     totalBytesRec = 0;
     totalBytes = 0;
 
@@ -114,7 +99,9 @@ int main(int argc, char **argv) {
 
     printf("%s - %s \n\n", msg, buf);
     printf("\t\tState 1\n");
-    while( (n = recvfrom(sockfd, buf, buffer_size, 0, (struct sockaddr *) &clientaddr, &clientlen)) ){      
+    //while( (n = recvfrom(sockfd, buf, buffer_size, 0, (struct sockaddr *) &clientaddr, &clientlen)) ){    
+    while( (n = tp_recvfrom(sock, buf, buffer_size, (struct sockaddr *) &sin6)) ){    
+
       totalBytes += n;
       totalBytesRec += strlen(buf);
       if (n < 0)
@@ -129,13 +116,14 @@ int main(int argc, char **argv) {
         break;
       if(buf[n-1] == '\\')
         signal = true;
+
+
     }
 
     msg[strlen(msg)-2] = '\0';
     printf("server received %d/%d bytes: %s\tsize of string: %d\n", totalBytesRec, totalBytes, msg, strlen(msg));
-    
-    
-    
+  
+
     /* 
      * Servidor recebeu nome do arquivo, agora vai enviar para o cliente
      */
@@ -165,19 +153,6 @@ int main(int argc, char **argv) {
 
     int chunck_size;
 
-
-     hostp = gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, 
-        sizeof(clientaddr.sin_addr.s_addr), AF_INET);
-    if (hostp == NULL)
-      error("ERROR on gethostbyaddr");
-    hostaddrp = inet_ntoa(clientaddr.sin_addr);
-    if (hostaddrp == NULL)
-      error("ERROR on inet_ntoa\n");
-    printf("server received datagram from %s (%s)\n", 
-     hostp->h_name, hostaddrp);
-    printf("server received %d/%d bytes: %s\n", strlen(buf), n, buf);
-    
-
     //cout << "Enviando arquivo: " << filename << " para o cliente.\n ";
     int times = 0;
     printf("\t\tState 2\n");
@@ -196,11 +171,15 @@ int main(int argc, char **argv) {
         break; // error leitura
       }
 
-      if(initiated){
-         n = recvfrom(sockfd, ack, 30, 0, (struct sockaddr *) &clientaddr, &clientlen);
+ /*     if(initiated){
+         //n = recvfrom(sockfd, ack, 30, 0, (struct sockaddr *) &clientaddr, &clientlen);
+         n = tp_recvfrom(sockfd, ack, 30, (struct sockaddr *) &clientaddr);
          printf("%s\n", ack);
-      }
-      numBytesSent = sendto(sockfd, buf, chunck_size, 0, (struct sockaddr *) &clientaddr, clientlen);
+      }*/
+      //numBytesSent = sendto(sockfd, buf, chunck_size, 0, (struct sockaddr *) &clientaddr, clientlen);
+      numBytesSent = tp_sendto(sock, buf,  chunck_size, (struct sockaddr *) &sin6);
+
+
       initiated = 1;
       
       times++;
@@ -217,13 +196,22 @@ int main(int argc, char **argv) {
         break;
       }
     }
-    
+
+
     char *end = "\\0";
     printf("\t\tState 3\n");
-    numBytesSent = sendto(sockfd, end, sizeof(end), 0, (struct sockaddr *) &clientaddr, clientlen);
+    //numBytesSent = sendto(sockfd, end, sizeof(end), 0, (struct sockaddr *) &clientaddr, clientlen);
+    numBytesSent = tp_sendto(sock, end,  sizeof(end), (struct sockaddr *) &sin6);
     printf("Arquivo: %s enviado para o cliente em %d blocos\n", msg, times);
 
     fclose(file);    
+ 
 
-  }
+
+
+   shutdown(sock, 2);
+   close(sock);
+   return 0;
+}
+
 }
