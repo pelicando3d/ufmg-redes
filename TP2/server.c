@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include "tp_socket.h"
 
 
@@ -16,15 +17,61 @@ void error(char *msg) {
 }
 
 
-int send_datagram(int so, char* buff, int buff_len, so_addr* to_addr){
-    int ret;
+uint16_t tcp_checksum(const char *data_p, size_t len, so_addr *src_addr, so_addr *dest_addr){
+    int i;
+    char *ad6 = malloc(1000 * sizeof(char));
+    char *ad6_2 = malloc(1000 * sizeof(char));
+    inet_ntop(AF_INET6, &src_addr->sin6_addr, ad6, 1000);
+    inet_ntop(AF_INET6, &dest_addr->sin6_addr, ad6_2, 1000);
+    
+    unsigned char x;
+    unsigned short crc = 0xFFFF;
+
+    while (len--){
+        x = crc >> 8 ^ *data_p++;
+        x ^= x>>4;
+        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
+    }
+
+    for (i = 0; ad6[i] != '\0'; i++){
+        x = crc >> 8 ^ *ad6++;
+        x ^= x>>4;
+        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
+    }
+
+    for (i = 0; ad6_2[i] != '\0'; i++){
+        x = crc >> 8 ^ *ad6_2++;
+        x ^= x>>4;
+        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);        
+    }
+
+    return crc;
+
+}
+
+
+int send_datagram(int so, char* buff, int buff_len, so_addr* to_addr, so_addr* from_addr){
+    int ret, crc;    
+
+    crc = tcp_checksum(buff, buff_len, from_addr, to_addr);
+    printf("\tCRC client send: %d\n", crc);
+    //printf("\t%s, %d, %s, %s\n",buff, buff_len, inet_ntop(AF_INET6, &from_addr->sin6_addr, ad6, 1000), inet_ntop(AF_INET6, &to_addr->sin6_addr, ad6_2, 1000));
+
     ret = tp_sendto(so, buff,  buff_len,  (struct sockaddr *)to_addr);
     return ret;
 }
 
-int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr){
-    int ret;
+int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr, so_addr* to_addr){ // ultimo eh end local
+    int ret, crc;
+
     ret = tp_recvfrom(so, buff, buff_len,  (struct sockaddr *)from_addr);
+
+    crc = tcp_checksum(buff, ret, to_addr,  from_addr);
+    
+    printf("CRC Server recv: %d\n", crc);
+
+    //printf("\t%s, %d, %s, %s\n",buff, ret, inet_ntop(AF_INET6, &from_addr->sin6_addr, ad6, 100), inet_ntop(AF_INET6, &to_addr->sin6_addr, ad6, 100));
+
     return ret;
 }
 
@@ -34,6 +81,7 @@ int main(int argc, char **argv){
     int sock;
     int status;
     struct sockaddr_in6 sin6;
+    struct addrinfo sainfo, *localinfo;
     int sin6len;   
     int portno; // id da porta
     int buffer_size; // tamanho do buffer
@@ -61,7 +109,7 @@ int main(int argc, char **argv){
     /* Iniciando TP */
     
     tp_init();
-    sock = tp_socket(portno);    
+    sock = tp_socket(portno, NULL);    
     buf = (char*) malloc(buffer_size * sizeof(char));
        
     /* Inicializando estrutura de enderecos e protocolos*/
@@ -70,8 +118,18 @@ int main(int argc, char **argv){
     sin6len = sizeof(struct sockaddr_in6);
     sin6.sin6_port = htons(portno);
     sin6.sin6_family = AF_INET6;
-    sin6.sin6_addr = in6addr_any;
+    sin6.sin6_addr = in6addr_any;    
     status = getsockname(sock, (struct sockaddr *)&sin6, &sin6len);
+
+
+    /* Pegar dados do servidor local */
+    memset(&sainfo, 0, sizeof(struct addrinfo));
+    sainfo.ai_flags = 0;
+    sainfo.ai_family = AF_INET6;
+    sainfo.ai_socktype = SOCK_DGRAM;
+    sainfo.ai_protocol = IPPROTO_UDP;
+    status = getaddrinfo("ip6-localhost", argv[2], &sainfo, &localinfo); //get local info
+
   
     
     /* Recebendo o Nome do arquivo a ser enviado */
@@ -97,7 +155,7 @@ int main(int argc, char **argv){
         memset(filepath, '\0', sizeof(filepath));    
     
         printf("\t\tState 1\n");
-        while( (n = receive_datagram(sock, buf, buffer_size, (struct sockaddr *) &sin6)) ){    
+        while( (n = receive_datagram(sock, buf, buffer_size, (struct sockaddr *) &sin6, (struct sockaddr *)localinfo->ai_addr) ) ){    
             totalBytes += n;
             totalBytesRec += strlen(buf);
             if (n < 0)
@@ -170,7 +228,7 @@ int main(int argc, char **argv){
            printf("%s\n", ack);
         }*/
 
-        numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *) &sin6);
+        numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *) &sin6, (struct sockaddr *)localinfo->ai_addr);
   
         initiated = true;
         times++;

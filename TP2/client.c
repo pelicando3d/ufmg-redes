@@ -8,34 +8,78 @@
 #include <arpa/inet.h>
 #include "tp_socket.h"
 
-#define MAXBUF 65536
 
 void error(char *msg) {
     perror(msg);
     exit(0);
 }
 
+uint16_t tcp_checksum(const char *data_p, size_t len, so_addr *src_addr, so_addr *dest_addr){
+    int i;
+    char *ad6 = malloc(1000 * sizeof(char));
+    char *ad6_2 = malloc(1000 * sizeof(char));
+    inet_ntop(AF_INET6, &src_addr->sin6_addr, ad6, 1000);
+    inet_ntop(AF_INET6, &dest_addr->sin6_addr, ad6_2, 1000);
+    
+    unsigned char x;
+    unsigned short crc = 0xFFFF;
 
-int send_datagram(int so, char* buff, int buff_len, so_addr* to_addr){
-    int ret;
+    while (len--){
+        x = crc >> 8 ^ *data_p++;
+        x ^= x>>4;
+        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
+    }
+
+    for (i = 0; ad6[i] != '\0'; i++){
+        x = crc >> 8 ^ *ad6++;
+        x ^= x>>4;
+        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
+    }
+
+    for (i = 0; ad6_2[i] != '\0'; i++){
+        x = crc >> 8 ^ *ad6_2++;
+        x ^= x>>4;
+        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);        
+    }
+
+    return crc;
+
+}
+
+
+int send_datagram(int so, char* buff, int buff_len, so_addr* to_addr, so_addr* from_addr){
+    int ret, crc;    
+
+    crc = tcp_checksum(buff, buff_len, from_addr, to_addr);
+    printf("\tCRC client send: %d\n", crc);
+    //printf("\t%s, %d, %s, %s\n",buff, buff_len, inet_ntop(AF_INET6, &from_addr->sin6_addr, ad6, 1000), inet_ntop(AF_INET6, &to_addr->sin6_addr, ad6_2, 1000));
+
     ret = tp_sendto(so, buff,  buff_len,  (struct sockaddr *)to_addr);
     return ret;
 }
 
-int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr){
-    int ret;
+int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr, so_addr* to_addr){
+    int ret, crc;
+
     ret = tp_recvfrom(so, buff, buff_len,  (struct sockaddr *)from_addr);
+
+    crc = tcp_checksum(buff, ret, to_addr,  from_addr);
+    
+    printf("CRC Server recv: %d\n", crc);
+
+    //printf("\t%s, %d, %s, %s\n",buff, ret, inet_ntop(AF_INET6, &from_addr->sin6_addr, ad6, 100), inet_ntop(AF_INET6, &to_addr->sin6_addr, ad6, 100));
+
+
     return ret;
 }
 
 int main(int argc, char* argv[]) {
     int sock;
     int status;
-    struct addrinfo sainfo, *psinfo;
+    struct addrinfo sainfo, *psinfo, *localinfo;
     struct sockaddr_in6 sin6;
     int sin6len;
-    char buffer[MAXBUF];
-  
+      
     int sockfd, portno, n;
     int serverlen;
     struct sockaddr_in serveraddr;
@@ -72,8 +116,10 @@ int main(int argc, char* argv[]) {
   
 
     tp_init();
-  
-    sock = tp_socket(portno);
+    sock = tp_socket(portno, hostname); //ToDo Voltar essa funcao pro original
+
+   /*sock = socket(AF_INET6, SOCK_DGRAM,0);
+   status = bind(sock, (struct sockaddr *)&sin6, sin6len);*/
   
     if(sock < 0){     
       printf("Error %d\n", sock); // Tem que corrigir o erro -1 do bind
@@ -85,7 +131,9 @@ int main(int argc, char* argv[]) {
     sainfo.ai_family = PF_INET6;
     sainfo.ai_socktype = SOCK_DGRAM;
     sainfo.ai_protocol = IPPROTO_UDP;
-    status = getaddrinfo(hostname, argv[2], &sainfo, &psinfo);
+    //status = getaddrinfo("ip6-localhost", argv[2], &sainfo, &localinfo); //get local info
+    status = getaddrinfo(hostname, argv[2], &sainfo, &psinfo); //get server info
+    
      
     bzero(buf, buffer_size);
     printf("Requesting file: %s (%d)\n", filename, filename_size);
@@ -96,7 +144,7 @@ int main(int argc, char* argv[]) {
     while(bytesLeft > 0){      
         chunck_size = bytesLeft > buffer_size ? buffer_size : bytesLeft;
         memcpy(buf, filename + sendPosition, chunck_size);      
-        numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *)psinfo->ai_addr);
+        numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)psinfo->ai_addr);
         
         printf("Sent:            %s \t ", buf);
         if (numBytesSent < 0) 
@@ -120,7 +168,7 @@ int main(int argc, char* argv[]) {
     int totalBytesRcvd = 0;
     memset(buf, '\0', sizeof(buf));
     while (1) {
-        n = receive_datagram(sock, buf, buffer_size,  (struct sockaddr *)psinfo->ai_addr);
+        n = receive_datagram(sock, buf, buffer_size,  (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)localinfo->ai_addr);
         times++;
         if (n == 0)
           break;
@@ -132,7 +180,7 @@ int main(int argc, char* argv[]) {
         fwrite(buf, 1, n, file); // writes file
         totalBytesRcvd += n;
         sprintf(ack, "ACK - %d", times);
-        numBytesSent = send_datagram(sock, ack,  30,  (struct sockaddr *)psinfo->ai_addr);
+        numBytesSent = send_datagram(sock, ack,  30,  (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)localinfo->ai_addr);
 
     }
     fclose(file);
