@@ -1,5 +1,4 @@
 ToDo List
 
-1) Port ipv4 to ipv6
-2) Adapt code to use Monitor's function
-3) Implement Sliding Window
+1) Implementar Janela Deslizante
+2) Testar pra perda e pack corrompidos
