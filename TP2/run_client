@@ -1,3 +1,3 @@
 #!/bin/bash
 
-./c.app ::1 $1 TP2.pdf 128 999
+./c.app ::1 $1 TP2.pdf 2048 999

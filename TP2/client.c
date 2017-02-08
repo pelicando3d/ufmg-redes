@@ -245,6 +245,10 @@ int main(int argc, char* argv[]) {
     while (1) {
 
         n = receive_datagram(sock, buf, buffer_size,  (so_addr *)psinfo->ai_addr);
+        
+        if (n > 1 && buf[n-2] == '\\' && buf[n-1] == '0') 
+            break;
+
         memcpy(seqNumReceived, buf, 10);
         times++;
         if (n == 0)
@@ -263,6 +267,8 @@ int main(int argc, char* argv[]) {
 
     }
     fclose(file);
+
+    printf("Arquivo: %s recebido pdo servidor em %d bytes\n", copyName, totalBytesRcvd);
 
 
   // free memory

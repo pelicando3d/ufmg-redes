@@ -370,7 +370,9 @@ int main(int argc, char **argv){
     }
   
        
-          printf("Arquivo: %s enviado para o cliente em %d blocos\n", msg, times);
+          printf("Arquivo: %s enviado para o cliente em %d bytes\n", msg, totalBytesSent);
+
+          numBytesSent = send_datagram(sock, "\\0",  strlen("\\0"), (so_addr *) &sin6);
 
 
 
