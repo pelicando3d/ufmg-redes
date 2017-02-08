@@ -38,17 +38,17 @@ uint16_t tcp_checksum(const char *data_p, size_t len, so_addr *src_addr, so_addr
         crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
     }
 
-    for (i = 0; ad6[i] != '\0'; i++){
-        x = crc >> 8 ^ *ad6++;
-        x ^= x>>4;
-        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
-    }
+    // for (i = 0; ad6[i] != '\0'; i++){
+    //     x = crc >> 8 ^ *ad6++;
+    //     x ^= x>>4;
+    //     crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
+    // }
 
-    for (i = 0; ad6_2[i] != '\0'; i++){
-        x = crc >> 8 ^ *ad6_2++;
-        x ^= x>>4;
-        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);        
-    }
+    // for (i = 0; ad6_2[i] != '\0'; i++){
+    //     x = crc >> 8 ^ *ad6_2++;
+    //     x ^= x>>4;
+    //     crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);        
+    // }
 
     return crc;
 
@@ -96,20 +96,21 @@ void *_send(void *arguments)
         block[args->seq] = 1;
         sleep(2);
     }
-    revs[args->seq] = 0;
-    block[args->seq] = 0;
+    //revs[args->seq] = 0;
+    //block[args->seq] = 0;
 
     pthread_exit(NULL);
     return NULL;
 }
 
 int window_space(int sws){
+    printf("checa");
     int i = 0;
     int sum = 0;
     for(i; i<sws; i++){
         sum += block[i];
     }
-    if(sum)
+    if(sum == sws-1)
         return 0;
     return 1;
 }
@@ -126,6 +127,7 @@ void* receiveACKs(void *arg){
     char *ack = malloc(10 * sizeof(char));
     int i;
     int n;
+    int volta = 0;
 
     while(1){
         n = receive_datagram(sw_sock, sw_buf, sw_buf_size,  from);
@@ -135,8 +137,19 @@ void* receiveACKs(void *arg){
         }
         memcpy(ack, sw_buf, 10);
         LAR = atoi(ack);
+        if(LAR == 0){
+               block[i] = 0;
+               revs[i] = 0;   
+            }
+
         revs[LAR] = 1;
-        printf("\t\tACK Recebido - %d (%s)\n", LAR, sw_buf);
+        printf("\t\tACK Recebido - %d (%s)\n", LAR, sw_buf);        
+            for (i = 0; i <= LAR; i++){                
+                block[i] = 0;
+                revs[i] = 1;
+            }
+            
+        
     }
 
 }
@@ -338,7 +351,7 @@ int main(int argc, char **argv){
     int count = 0;
     int once = 0;
     pthread_t window[SWS];
-    struct arg_struct args;
+    struct arg_struct args[SWS];
 
     while(1) {
 
@@ -357,7 +370,7 @@ int main(int argc, char **argv){
             SeqNum++;
 
             SeqNum = SeqNum % SWS;
-            int crc = tcp_checksum(buf, chunck_size, (so_addr *) &sin6, (so_addr *) &sin6);
+            int crc = tcp_checksum(buf, strlen(buf), (so_addr *) &sin6, (so_addr *) &sin6);
             sprintf(datagrama, "%010d%010d%s", SeqNum, crc, buf);
             //printf("\t\tDatagram(%s), Lenght(%lu)\n", datagrama, strlen(datagrama));
           
@@ -372,6 +385,7 @@ int main(int argc, char **argv){
               totalMsgSent += 1;
             }
       
+
             if(feof(file)){
               break;
             }
@@ -383,13 +397,13 @@ int main(int argc, char **argv){
 
             numBytesSent = send_datagram(sock, datagrama,  chunck_size, (so_addr *) &sin6);
 
-            args.so = sock;
-            args.buff = datagrama ;
-            args.buff_len = chunck_size ;
-            args.from_addr = (so_addr*) &sin6 ;
-            args.seq = SeqNum ;
+            args[SeqNum].so = sock;
+            args[SeqNum].buff = datagrama ;
+            args[SeqNum].buff_len = chunck_size ;
+            args[SeqNum].from_addr = (so_addr*) &sin6 ;
+            args[SeqNum].seq = SeqNum ;
 
-            if (pthread_create(&window[SeqNum], NULL, &_send, (void *)&args) != 0) {
+            if (pthread_create(&window[SeqNum], NULL, &_send, (void *)&(args[SeqNum])) != 0) {
                 printf("Erro ao criar Thread!\n");
                 return -1;
             }

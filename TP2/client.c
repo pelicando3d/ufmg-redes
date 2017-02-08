@@ -36,17 +36,17 @@ uint16_t tcp_checksum(const char *data_p, size_t len, so_addr *src_addr, so_addr
         crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
     }
 
-    for (i = 0; ad6[i] != '\0'; i++){
-        x = crc >> 8 ^ *ad6++;
-        x ^= x>>4;
-        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
-    }
+    // for (i = 0; ad6[i] != '\0'; i++){
+    //     x = crc >> 8 ^ *ad6++;
+    //     x ^= x>>4;
+    //     crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);
+    // }
 
-    for (i = 0; ad6_2[i] != '\0'; i++){
-        x = crc >> 8 ^ *ad6_2++;
-        x ^= x>>4;
-        crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);        
-    }
+    // for (i = 0; ad6_2[i] != '\0'; i++){
+    //     x = crc >> 8 ^ *ad6_2++;
+    //     x ^= x>>4;
+    //     crc = (crc << 8) ^ ((unsigned short)(x << 12)) ^ ((unsigned short)(x <<5)) ^ ((unsigned short)x);        
+    // }
 
     return crc;
 
@@ -241,6 +241,7 @@ int main(int argc, char* argv[]) {
     memset(buf, '\0', sizeof(buf));
 
     char *seqNumReceived = malloc(10*sizeof(char));
+    char *checkS = malloc(10*sizeof(char));
     char *writeBuf = malloc((buffer_size-20)*sizeof(char));
 
     while (1) {
@@ -251,16 +252,13 @@ int main(int argc, char* argv[]) {
           break;
 
       
-            
-        
-        
         memcpy(seqNumReceived, buf, 10);
+        memcpy(checkS, buf+10, 10);
         writeBuf = realloc(writeBuf, (strlen(buf)-20) * sizeof(char));
         memcpy(writeBuf, buf+20, strlen(buf)-20);
 
         printf("%s\n", writeBuf);
 
-        
         
         if (n == 0)
           break;
@@ -273,8 +271,13 @@ int main(int argc, char* argv[]) {
         fputs(writeBuf, file);
         totalBytesRcvd += n;
         //sprintf(ack, "ACK - %d", times);
-        numBytesSent = send_datagram(sock, seqNumReceived,  buffer_size,  (so_addr *)psinfo->ai_addr);
-        printf("\n\tACK enviado %s\n", seqNumReceived);
+
+        int crc = tcp_checksum(writeBuf, strlen(writeBuf), (so_addr *) psinfo->ai_addr, (so_addr *) psinfo->ai_addr);
+        //if(crc == atoi(checkS)){
+            numBytesSent = send_datagram(sock, seqNumReceived,  buffer_size,  (so_addr *)psinfo->ai_addr);
+            printf("\n\tACK enviado %s\n", seqNumReceived);
+        //}
+        printf("\n\tChecks (%d) (%s) \n", crc, checkS);
 
 
     }
