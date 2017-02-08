@@ -241,16 +241,27 @@ int main(int argc, char* argv[]) {
     memset(buf, '\0', sizeof(buf));
 
     char *seqNumReceived = malloc(10*sizeof(char));
+    char *writeBuf = malloc((buffer_size-20)*sizeof(char));
 
     while (1) {
 
         n = receive_datagram(sock, buf, buffer_size,  (so_addr *)psinfo->ai_addr);
-        
-        if (n > 1 && buf[n-2] == '\\' && buf[n-1] == '0') 
-            break;
 
+        if (n > 1 && buf[n-2] == '\\' && buf[n-1] == '0')
+          break;
+
+      
+            
+        
+        
         memcpy(seqNumReceived, buf, 10);
-        times++;
+        writeBuf = realloc(writeBuf, (strlen(buf)-20) * sizeof(char));
+        memcpy(writeBuf, buf+20, strlen(buf)-20);
+
+        printf("%s\n", writeBuf);
+
+        
+        
         if (n == 0)
           break;
         if (n < 0)
@@ -258,7 +269,8 @@ int main(int argc, char* argv[]) {
         if (n > 1 && buf[n-2] == '\\' && buf[n-1] == '0')
           break;
   
-        fwrite(buf, 1, n, file); // writes file
+        //fwrite(writeBuf, 1, sizeof(writeBuf) , file); // writes file
+        fputs(writeBuf, file);
         totalBytesRcvd += n;
         //sprintf(ack, "ACK - %d", times);
         numBytesSent = send_datagram(sock, seqNumReceived,  buffer_size,  (so_addr *)psinfo->ai_addr);

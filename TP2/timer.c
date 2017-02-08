@@ -62,6 +62,15 @@ stopwaitHandler(void)
     signal(SIGALRM,stopwait);
 }
 
+
+void
+Janela_Deslizante_Handler(void){
+    if(!sw_ack){
+      retransmit = 1;
+      mysettimer(espera);
+    }    
+}
+
 int main2(int argc, char* argv[]) {
     char   entrada[512];
     size_t elen;

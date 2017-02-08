@@ -74,6 +74,45 @@ int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr){ // u
     return ret;
 }
 
+int *revs, *block;
+
+struct arg_struct {    
+    int so;
+    char* buff;
+    int buff_len;
+    so_addr* from_addr;
+    int seq;
+};
+
+void *_send(void *arguments)
+{
+    struct arg_struct *args = (struct arg_struct *)arguments;
+        
+
+    while(!revs[args->seq]){
+        if(block[args->seq]) printf("\nReenviando pacote %d\n", args->seq);
+        else  printf("\nEnviando pacote %d\n", args->seq);
+        int ret = send_datagram(args->so, args->buff, args->buff_len, args->from_addr);
+        block[args->seq] = 1;
+        sleep(2);
+    }
+    revs[args->seq] = 0;
+    block[args->seq] = 0;
+
+    pthread_exit(NULL);
+    return NULL;
+}
+
+int window_space(int sws){
+    int i = 0;
+    int sum = 0;
+    for(i; i<sws; i++){
+        sum += block[i];
+    }
+    if(sum)
+        return 0;
+    return 1;
+}
 
 
 int sw_sock;
@@ -96,6 +135,7 @@ void* receiveACKs(void *arg){
         }
         memcpy(ack, sw_buf, 10);
         LAR = atoi(ack);
+        revs[LAR] = 1;
         printf("\t\tACK Recebido - %d (%s)\n", LAR, sw_buf);
     }
 
@@ -129,6 +169,15 @@ int main(int argc, char **argv){
     buffer_size = atoi(argv[2]);
     SWS = atoi(argv[3]);    
     filepath = argv[4];
+
+
+    revs = malloc(SWS*sizeof(int));
+    memset(revs, 0, SWS);
+
+    block = malloc(SWS*sizeof(int));
+    memset(block, 0, SWS);
+
+    
   
     
     /* Iniciando TP */
@@ -224,7 +273,7 @@ int main(int argc, char **argv){
     strcat(filepath, msg);
 
 
-    FILE *file = fopen(filepath, "rb"); 
+    FILE *file = fopen(filepath, "r"); 
 
     if(file == NULL){
         printf("ERRO ABRI FILE %s", filepath);
@@ -267,6 +316,9 @@ int main(int argc, char **argv){
     pthread_t tid[1];
     err = pthread_create(&(tid[0]), NULL, &receiveACKs, NULL);
 
+    // Thread pra reenvio em janela deslizante
+    pthread_t janelas[9999];
+
     /* enviando arquivo em chunks */
     int seqId = 0;
 
@@ -284,11 +336,15 @@ int main(int argc, char **argv){
 
     // Laco para enviar os blocos do arquivo para o cliente
     int count = 0;
+    int once = 0;
+    pthread_t window[SWS];
+    struct arg_struct args;
+
     while(1) {
 
         if(mayRead){
             nElem = fread(buf, sizeof(char), buffer_size-20, file);       
-            chunck_size =  nElem > buffer_size ? buffer_size : nElem;  
+            chunck_size =  nElem < buffer_size ? nElem : buffer_size;  
             printf("chuck size: %d, strlen buf: %lu, buf size: %d, nElen: %lu\n", chunck_size, strlen(buf), buffer_size, nElem);
       
             if (nElem <= 0 && !feof(file)) { 
@@ -296,62 +352,17 @@ int main(int argc, char **argv){
               break; // error leitura Todo: mandar pra funcao
             }
 
+            
+
             SeqNum++;
+
+            SeqNum = SeqNum % SWS;
             int crc = tcp_checksum(buf, chunck_size, (so_addr *) &sin6, (so_addr *) &sin6);
             sprintf(datagrama, "%010d%010d%s", SeqNum, crc, buf);
+            //printf("\t\tDatagram(%s), Lenght(%lu)\n", datagrama, strlen(datagrama));
+          
 
             LFS = SeqNum;
-        }
-
-        //if(LFS - LAR <= SWS){
-        count++;
-        if(count>3000){
-            mayRead = 0;
-        }
-        if(mayRead){
-            mayRead = 1;
-
-            numBytesSent = send_datagram(sock, datagrama,  chunck_size, (so_addr *) &sin6);
-
-            printf("\n\tSEQ SENT: %d\n", SeqNum);
-
-
-            /*signal(SIGALRM, stopWait_handler);
-            mysettimer(espera);*/
-
-
-    //         int done = 0;
-    //         int errno;
-
-               //laco para reenviar pacotes
-    //         while (!done) {
-    //             errno = 0; /* Só por garantia */
-    //             fprintf(stderr,"Enviando PACOTE %d\n", times);
-    //             numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *) &sin6, (struct sockaddr *)localinfo->ai_addr);
-    //             //reenviarSW = 1;
-
-
-
-    //             if ( LFS - LAR > SWS ) {                
-    //                 /* chamadas de socket só retornam < 0 se deu erro */                
-    //                 if (errno==EINTR) {
-    //                     printf("\ninterrompida\n");
-    //                     /* uma chamada interrompida seria tratada aqui */
-    //                     errno = 0;
-    //                 } else if (errno) {
-    //                     perror("fgets");
-    //                     exit(1);
-    //                 } else if (feof(stdin)) {
-    //                     fprintf(stderr,"Entrada vazia.\n");
-    //                     exit(0);
-    //                 }
-    //             } else {
-    //                 printf("RETORNOU COM SUCESSO\n");
-    // //                reenviarSW = 0;
-    //                 done = 1;
-    //             }
-    //         }   
-
 
             if (numBytesSent < 0){
               printf("Erro Envio\n");
@@ -364,6 +375,25 @@ int main(int argc, char **argv){
             if(feof(file)){
               break;
             }
+        }
+        
+        
+        if(window_space(SWS)){
+            mayRead = 1;
+
+            numBytesSent = send_datagram(sock, datagrama,  chunck_size, (so_addr *) &sin6);
+
+            args.so = sock;
+            args.buff = datagrama ;
+            args.buff_len = chunck_size ;
+            args.from_addr = (so_addr*) &sin6 ;
+            args.seq = SeqNum ;
+
+            if (pthread_create(&window[SeqNum], NULL, &_send, (void *)&args) != 0) {
+                printf("Erro ao criar Thread!\n");
+                return -1;
+            }
+            
         } else {
             mayRead = 0;
         }
@@ -371,6 +401,9 @@ int main(int argc, char **argv){
   
        
           printf("Arquivo: %s enviado para o cliente em %d bytes\n", msg, totalBytesSent);
+
+          
+
 
           numBytesSent = send_datagram(sock, "\\0",  strlen("\\0"), (so_addr *) &sin6);
 
