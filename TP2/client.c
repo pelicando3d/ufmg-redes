@@ -11,84 +11,6 @@
 
 typedef enum { false, true } bool;
 
-// typedef u_char  SwpSeqno;
-
-// typedef struct {
-//     SwpSeqno SeqNum;
-//     SwpSeqno AckNum;
-//     u_char Flags;
-// } SwpHdr;
-
-// typedef struct {
-//     int valid;
-//     char *msg;
-// } recvQ_slot;
-
-// /* receiver side state: */
-// typedef struct {
-//     SwpSeqno   LAF;       // largest acceptable frame
-//     SwpSeqno   LFR;       // last frame received 
-//     int        RWS;       // receiver window size
-//     SwpHdr     hdr;       // preinitialized header
-//     recvQ_slot *recvQ;
-// } SwpState;
-
-// // checar se o pacote recebido (seqno) está dentro do intervalo permitido
-// static bool swpInWindow(SwpSeqno seqno, SwpSeqno min, SwpSeqno max) {
-//     SwpSeqno pos, maxpos;
-//     pos = seqno - min; /* pos *should* be in range [0..MAX)*/ 
-//     maxpos = max - min + 1;/* maxpos is in range [0..MAX]*/ 
-//     return pos < maxpos;
-// }
-
-// static int deliverSWP(SwpState state, char *frame) {
-//     SwpHdr   hdr;
-//     char     *hbuf;
-//     hbuf = msgStripHdr(frame, HLEN);
-//     load_swp_hdr(&hdr, hbuf)
-//     if (hdr->Flags & FLAG_ACK_VALID) {
-//         /* received an acknowledgment---do SENDER side */
-//         if (swpInWindow(hdr.AckNum, state->LAR + 1, state->LFS)) {
-//             do {
-//                 struct sendQ_slot *slot;
-//                 slot = &state->sendQ[++state->LAR % SWS];
-//                 evCancel(slot->timeout);
-//                 msgDestroy(&slot->msg);
-//                 semSignal(&state->sendWindowNotFull);
-                
-//             } while (state->LAR != hdr.AckNum);
-//         }
-//     }
-
-//     if (hdr.Flags & FLAG_HAS_DATA) {
-//         struct recvQ_slot *slot;    
-        
-//         /* received data packet---do RECEIVER side */
-//         slot = &state->recvQ[hdr.SeqNum % RWS];
-//         if (!swpInWindow(hdr.SeqNum, state->NFE, state->NFE + RWS - 1)) {
-//             /* drop the message */
-//             return SUCCESS;
-//         }
-
-//         msgSaveCopy(&slot->msg, frame);
-//         slot->received = TRUE;
-//         if (hdr.SeqNum == state->NFE) {
-//             Msg m;
-//             while (slot->received) {
-//                 deliverHLP(&slot->msg);
-//                 msgDestroy(&slot->msg);
-//                 slot->received = FALSE;
-//                 slot = &state->recvQ[++state->NFE % RWS];
-//             }
-//             /* send ACK: */
-//             prepare_ack(&m, state->NFE - 1);
-//             sendLINK(&m);
-//             msgDestroy(&m);
-//         }
-//     }
-//     return SUCCESS;
-// }
-
 // ToDo: Implementar no servidor o caso de o ACK  final falhar
 
 int espera = 1000;
@@ -131,25 +53,25 @@ uint16_t tcp_checksum(const char *data_p, size_t len, so_addr *src_addr, so_addr
 }
 
 
-int send_datagram(int so, char* buff, int buff_len, so_addr* to_addr, so_addr* from_addr){
+int send_datagram(int so, char* buff, int buff_len, so_addr* to_addr){
     int ret, crc;    
 
-    crc = tcp_checksum(buff, buff_len, from_addr, to_addr);
-    printf("\tCRC client send: %d\n", crc);
+  //  crc = tcp_checksum(buff, buff_len, from_addr, to_addr);
+   // printf("\tCRC client send: %d\n", crc);
     //printf("\t%s, %d, %s, %s\n",buff, buff_len, inet_ntop(AF_INET6, &from_addr->sin6_addr, ad6, 1000), inet_ntop(AF_INET6, &to_addr->sin6_addr, ad6_2, 1000));
 
-    ret = tp_sendto(so, buff,  buff_len,  (struct sockaddr *)to_addr);
+    ret = tp_sendto(so, buff,  buff_len, to_addr);
     return ret;
 }
 
-int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr, so_addr* to_addr){
+int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr){
     int ret, crc;
 
-    ret = tp_recvfrom(so, buff, buff_len,  (struct sockaddr *)from_addr);
+    ret = tp_recvfrom(so, buff, buff_len, from_addr);
 
-    crc = tcp_checksum(buff, ret, to_addr,  from_addr);
+   // crc = tcp_checksum(buff, ret, to_addr,  from_addr);
     
-    printf("CRC Server recv: %d\n", crc);
+    //printf("CRC Server recv: %d\n", crc);
 
     //printf("\t%s, %d, %s, %s\n",buff, ret, inet_ntop(AF_INET6, &from_addr->sin6_addr, ad6, 100), inet_ntop(AF_INET6, &to_addr->sin6_addr, ad6, 100));
 
@@ -160,14 +82,14 @@ int receive_datagram(int so, char* buff, int buff_len, so_addr* from_addr, so_ad
 int handler_sock;
 char *handler_buf;
 int handler_chunk_size;
-struct sockaddr *to, *from;
+so_addr *to, *from;
 int reenviarSW;
 
 
 void stopWait_handler(int signalid){
     if(reenviarSW){
-        printf("\n\tReenviando Pacote\n");
-        int numBytesSent = send_datagram(handler_sock, handler_buf,  handler_chunk_size, to, from);
+        printf("\n\tReenviando Pacote Com Nome de Arquivo\n");
+        int numBytesSent = send_datagram(handler_sock, handler_buf,  handler_chunk_size, to);
         mysettimer(espera);
     }
 }
@@ -217,48 +139,42 @@ int main(int argc, char* argv[]) {
     tp_init();
     sock = tp_socket(portno, hostname); //ToDo Voltar essa funcao pro original
 
-   /*sock = socket(AF_INET6, SOCK_DGRAM,0);
-   status = bind(sock, (struct sockaddr *)&sin6, sin6len);*/
-  
     if(sock < 0){     
       printf("Error %d\n", sock); // Tem que corrigir o erro -1 do bind
     }
-  
-    memset(&sainfo, 0, sizeof(struct addrinfo));
-     
+
+
+    memset(&sainfo, 0, sizeof(struct addrinfo)); 
     sainfo.ai_flags = 0;
-    sainfo.ai_family = PF_INET6;
+    sainfo.ai_family = AF_INET6;
     sainfo.ai_socktype = SOCK_DGRAM;
     sainfo.ai_protocol = IPPROTO_UDP;
-    //status = getaddrinfo("ip6-localhost", argv[2], &sainfo, &localinfo); //get local info
     status = getaddrinfo(hostname, argv[2], &sainfo, &psinfo); //get server info
     
      
-    bzero(buf, buffer_size);
+
+    /* Enviando Nome do arquivo na politica Stop and Wait*/
     printf("Requesting file: %s (%d)\n", filename, filename_size);
-    msg_toSend = malloc((filename_size+5) * sizeof(char)); // Alocando variavel msg_toSend que tera o filename + id de fim de string
+    bzero(buf, buffer_size);    
     strcat(filename, "\\0");
-    bytesLeft = strlen(filename);
+    
 
     int wait_ack = 0;
-
     size_t elen;
     int    done; /* Controle do loop */
 
-
-    char entrada[1000];
-      
-
+        
+    bytesLeft = strlen(filename);
     while(bytesLeft > 0){      
         chunck_size = bytesLeft > buffer_size ? buffer_size : bytesLeft;
-        memcpy(buf, filename + sendPosition, chunck_size);      
-        
+        memcpy(buf, filename + sendPosition, chunck_size);    
 
+        /* Variaveis globais do retransmissor*/
         handler_sock = sock;
         handler_buf = buf;
         handler_chunk_size = chunck_size;
-        to = (struct sockaddr *)psinfo->ai_addr;
-        from = (struct sockaddr *)psinfo->ai_addr;
+        to = (so_addr *)psinfo->ai_addr;
+        from = (so_addr *)psinfo->ai_addr;
 
         signal(SIGALRM, stopWait_handler);
         mysettimer(espera);
@@ -267,10 +183,10 @@ int main(int argc, char* argv[]) {
         done = 0;
         while (!done) {
             errno = 0; /* Só por garantia */
-            //fprintf(stderr,"Enviando PACOTE 1 NOME\n");
-            numBytesSent = send_datagram(sock, buf,  chunck_size, (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)psinfo->ai_addr);
+            
+            numBytesSent = send_datagram(sock, buf,  chunck_size, (so_addr *)psinfo->ai_addr);
             reenviarSW = 1;
-            if ( ( n = receive_datagram(sock, buf, buffer_size,  (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)localinfo->ai_addr) ) <= 0 ) {                
+            if ( ( n = receive_datagram(sock, buf, buffer_size,  (so_addr *)psinfo->ai_addr) ) <= 0 ) {                
                 /* chamadas de socket só retornam < 0 se deu erro */                
                 if (errno==EINTR) {
                     printf("\ninterrompida\n");
@@ -284,13 +200,11 @@ int main(int argc, char* argv[]) {
                     exit(0);
                 }
             } else {
-                printf("RETORNOU COM SUCESSO\n");
+                printf("Sucesso ao enviar\n");
                 reenviarSW = 0;
                 done = 1;
             }
-        }
-
-        
+        }        
 
         wait_ack = 1;
         
@@ -305,7 +219,17 @@ int main(int argc, char* argv[]) {
 
     printf("File requested\n");
 
-    /* Abrindo arquivo para gravacao */
+// ================ Ate aqui ta legal ================= //
+
+
+
+
+// RECEBER ARQUIVO 
+
+
+
+
+      /* Abrindo arquivo para gravacao */
     FILE *file = fopen(copyName, "w+");  
     if (file == NULL) // Invalid file or file not found
         printf("erro abrir");
@@ -320,7 +244,7 @@ int main(int argc, char* argv[]) {
 
     while (1) {
 
-        n = receive_datagram(sock, buf, buffer_size,  (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)localinfo->ai_addr);
+        n = receive_datagram(sock, buf, buffer_size,  (so_addr *)psinfo->ai_addr);
         memcpy(seqNumReceived, buf, 10);
         times++;
         if (n == 0)
@@ -333,7 +257,9 @@ int main(int argc, char* argv[]) {
         fwrite(buf, 1, n, file); // writes file
         totalBytesRcvd += n;
         //sprintf(ack, "ACK - %d", times);
-        numBytesSent = send_datagram(sock, seqNumReceived,  10,  (struct sockaddr *)psinfo->ai_addr, (struct sockaddr *)localinfo->ai_addr);
+        numBytesSent = send_datagram(sock, seqNumReceived,  buffer_size,  (so_addr *)psinfo->ai_addr);
+        printf("\n\tACK enviado %s\n", seqNumReceived);
+
 
     }
     fclose(file);
