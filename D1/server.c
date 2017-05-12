@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <stdint.h>
 
+const int8_t false = 0;
+const int8_t true = 1;
 
 const uint32_t bufsize = 1024;
 
@@ -27,37 +29,105 @@ void initiate_passiveConnection(int *csocket, struct sockaddr_in* server, char* 
   printf("Socket aberto, id = %d\n", *csocket);
 }
 
-void receive_file(char* filename, int client) {
-  char buffer[bufsize + 1], *packets;
-  FILE *out_file;
-  uint32_t total_bytesSent = 0, total_msgSent = 0;    
-  ssize_t nElem = 0;
-  int nbytes;
-  //  char *response = (char*) malloc(buffer_size);
-  // response[0] = '\0';
+unsigned carry_around_add(unsigned a, unsigned b) {
+  unsigned c = a + b;
+  return (c &0xffff)+(c >>16);
+}
 
-  out_file = fopen(filename, "wb+"); // open in binary mode
-  
+unsigned checksum(uint8_t *headers, uint8_t *data, uint16_t len){
+  unsigned s = 0;
+  unsigned i = 0;
+  for (; i < 14; i+=2) { // 14 bytes header
+    unsigned w = headers[i] + (headers[i+1])<<8;
+    s = carry_around_add(s, w);
+  }
+
+  for (i = 0; i < len; i+=2) {
+    unsigned w = data[i] + (data[i+1])<<8;
+    s = carry_around_add(s, w);
+  }
+  return~s &0xffff;
+}
+
+uint16_t
+cksum(uint8_t *headers, uint8_t *data, uint16_t len) {
+  register u_long sum = 0;
+  u_short count = 14;
+  while (count--) {
+    sum += *headers++;
+    if (sum & 0xFFFF0000) {
+      sum &= 0xFFFF;
+      sum++;  
+    }
+  }
+
+  count = len;
+  while (count--) {
+    sum += *data++;
+    if (sum & 0xFFFF0000) {
+      sum &= 0xFFFF;
+      sum++;  
+    }
+  }
+
+  return ~(sum & 0xFFFF);
+}
+
+
+void receive_file(char* filename, int client) {
+  uint32_t total_bytesSent = 0, total_msgSent = 0, recvpackets = 0;
+  uint32_t inSYNC1, inSYNC2;
+  uint16_t inCHKSUM, inLENGTH, CHKSUM;
+  uint8_t inID, inFLAGS, inDATA[bufsize];
+  uint8_t buffer[bufsize + 1], *packets, byteArray[14];
+  ssize_t nElem = 0, nbytes;
+  FILE *out_file;
+
+  out_file = fopen(filename, "wb+"); // open in binary mode  
   if(out_file == NULL)
     die(8); //file doesnt exist   
-
   memset (buffer, '\0', bufsize);
+  
+  while(true) {
+    //Receiveing Package header [SYNC|SYNC|CHKSUM|LENGTH|ID|FLAGS]
+    nbytes = recv (client, &inSYNC1, 4, 0);
+    nbytes = recv (client, &inSYNC2, 4, 0);
+    nbytes = recv (client, &inCHKSUM, 2, 0);
+    nbytes = recv (client, &inLENGTH, 2, 0);
+    nbytes = recv (client, &inID, 1, 0);
+    nbytes = recv (client, &inFLAGS, 1, 0);
 
-  while( (nbytes = recv (client, buffer, bufsize, 0)) ){      
-    if (nbytes < 0){
-      die(5); // Error accept
-    }
-    buffer[nbytes] = '\0';
-    printf("Recebeu: %s\n", buffer);
-    fwrite(&buffer, 1, nbytes, out_file); // writes file
+    // printf("Received: [%x][%x][%x][%x][%x][%x]\n", inSYNC1, inSYNC2, inCHKSUM, inLENGTH, inID, inFLAGS);
 
-    /* Montar Pacotes 
-    if (totalBytesRcvd)
-      response = (char*) realloc(response, strlen(response) + strlen(buffer) + 1);
-    strcat(response, buffer);
-    */
+    if(inFLAGS == 0x40) break; // Checking if FLAG == END --> END OF TRANSMISSION
+
+    // Converting byte order
+    inSYNC1 = ntohl(inSYNC1);
+    inSYNC2 = ntohl(inSYNC2);
+    inCHKSUM = ntohs(inCHKSUM);
+    inLENGTH = ntohs(inLENGTH);
+
+    //Receiving Data with length determined by inLENGTH
+    nbytes = recv (client, inDATA, inLENGTH, 0);
+    //printf(" + %d bytes de dados #%d\n", nbytes, recvpackets);
+
+    //Calculating 'revert' Checksum
+    memcpy(&byteArray[0], &inSYNC1, sizeof(inSYNC1)); // 00 - 31  (4 bytes) : SYNC
+    memcpy(&byteArray[4], &inSYNC2, sizeof(inSYNC2)); // 32 - 63  (4 bytes) : SYNC
+    memcpy(&byteArray[8], &inCHKSUM, sizeof(inCHKSUM)); // 64 - 79  (2 bytes) : CHKSUM
+    memcpy(&byteArray[10], &inLENGTH, sizeof(inLENGTH));// 80 - 95 (2 bytes) : LENGTH
+    memcpy(&byteArray[12], &inID, sizeof(inID));// 96 - 103 (1 byte) : ID
+    memcpy(&byteArray[13], &inFLAGS, sizeof(inFLAGS));// 104 - 111 (1 bytes) : FLAGS
+
+    printf("RECEBIDO = [%x][%x][%x][%x][%x][%x]\n\n", inSYNC1, inSYNC2, inCHKSUM, inLENGTH, inID, inFLAGS);
+    
+    recvpackets++;
+    
+    //Writing data received in the output file
+    fwrite(inDATA, 1, nbytes, out_file); 
   }
-  fclose(out_file);
+  fclose(out_file); // Closing file
+  printf("File %s received from %i. Packets: %u\n\n", filename, client, recvpackets);
 }
 
 int main(int argc, char **argv){
@@ -90,9 +160,6 @@ int main(int argc, char **argv){
 
   receive_file(out_name, newSocket);
 
-  /*---- Send message to the socket of the incoming connection ----*/
-  strcpy(buffer,"Hello World\n");
-  send(newSocket,buffer,13,0);
-
+  
   return 0;
 }
