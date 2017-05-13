@@ -119,6 +119,15 @@
       CHKSUM = htons(CHKSUM);    
       LENGTH = htons(LENGTH); 
 
+
+	// TODO: COlOCAR TIMEOUT DE 1 SEGUNDO PARA RETRANSMISSAO EM CASO DE NAO 
+	// RECEBER ACK
+      if(feof(input_file)){ //end of file, end of transmission
+        printf("Fim do arquivo !\n\n");  
+        fclose(input_file);
+        FLAGS = 0x40;
+      }
+
       send(ssocket, &SYNC, sizeof(SYNC), 0);
       send(ssocket, &SYNC, sizeof(SYNC), 0);
       send(ssocket, &CHKSUM, sizeof(CHKSUM), 0);
@@ -138,7 +147,7 @@
       // #######################################################################
       uint32_t inSYNC1, inSYNC2;
       uint16_t inCHKSUM, inLENGTH;
-      uint8_t ID, FLAGS;
+      uint8_t inID, inFLAGS;
 
       recv (ssocket, &inSYNC1, 4, 0);
       recv (ssocket, &inSYNC2, 4, 0);
@@ -149,33 +158,20 @@
 
       // toDo: Checagem se pacote esta correto (CHECKSUM)
 
-      if(inID == ID) {
-        ID = 1;
+      if(inID == ID && inFLAGS == 0x80) {
+        ID = !ID;
+      }else {
+	printf("Problema com o ACK");
       }
+
+     if(FLAGS == 0x40) break; // end of transmission
 
       // #######################################################################
       // #######################################################################
       // #######################################################################
 
-      
-      if(feof(input_file)){ //end of file, end of transmission
-        printf("Fim do arquivo !\n\n");  
-        fclose(input_file);
-        break;
-      }
     }  
 
-    // sending last packet with END flag set on
-    FLAGS = 0x40;
-    LENGTH = 0;
-    //ToDo recalc checksum
-    if(send(ssocket, &SYNC, sizeof(SYNC), 0) <= 0) printf("Error enviar\n");
-    if(send(ssocket, &SYNC, sizeof(SYNC), 0) <= 0) printf("Error enviar\n");
-    if(send(ssocket, &CHKSUM, sizeof(CHKSUM), 0) <= 0) printf("Error enviar\n");
-    if(send(ssocket, &LENGTH, sizeof(LENGTH), 0) <= 0) printf("Error enviar\n");
-    if(send(ssocket, &ID, sizeof(ID), 0) <= 0) printf("Error enviar\n");
-    if(send(ssocket, &FLAGS, sizeof(FLAGS), 0) <= 0) printf("Error enviar\n");
-    //printf("ENVIADO = [%x][%x][%x][%x][%x][%x]\n\n", SYNC, SYNC, CHKSUM, LENGTH, ID, FLAGS);
     printf("File %s sent to %i. Packets: %u\n\n", filename, ssocket, sentpackets);
   }
 

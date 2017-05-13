@@ -77,8 +77,8 @@ cksum(uint8_t *headers, uint8_t *data, uint16_t len) {
 void receive_file(char* filename, int client) {
   uint32_t total_bytesSent = 0, total_msgSent = 0, recvpackets = 0;
   uint32_t inSYNC1, inSYNC2;
-  uint16_t inCHKSUM, inLENGTH, CHKSUM;
-  uint8_t inID, inFLAGS, inDATA[bufsize];
+  uint16_t inCHKSUM, inLENGTH, CHKSUM, lastCHKSUM;
+  uint8_t inID, inFLAGS, inDATA[bufsize], lastID = 1;
   uint8_t buffer[bufsize + 1], *packets, byteArray[14];
   ssize_t nElem = 0, nbytes;
   FILE *out_file;
@@ -99,13 +99,13 @@ void receive_file(char* filename, int client) {
 
     // printf("Received: [%x][%x][%x][%x][%x][%x]\n", inSYNC1, inSYNC2, inCHKSUM, inLENGTH, inID, inFLAGS);
 
-    if(inFLAGS == 0x40) break; // Checking if FLAG == END --> END OF TRANSMISSION
-
     // Converting byte order
     inSYNC1 = ntohl(inSYNC1);
     inSYNC2 = ntohl(inSYNC2);
     inCHKSUM = ntohs(inCHKSUM);
     inLENGTH = ntohs(inLENGTH);
+
+    if(inSYNC1 != inSYNC2 && inSYNC1 != 0xDCC023C2) continue; // recebi um pacote cagado, mal identificado - Abandonar
 
     //Receiving Data with length determined by inLENGTH
     nbytes = recv (client, inDATA, inLENGTH, 0);
@@ -121,10 +121,49 @@ void receive_file(char* filename, int client) {
 
     printf("RECEBIDO = [%x][%x][%x][%x][%x][%x]\n\n", inSYNC1, inSYNC2, inCHKSUM, inLENGTH, inID, inFLAGS);
     
+    // #################### Enviando ACK ############################
+    // ##############################################################
+    // TODO CHECAGEM CORRETA DO CHKSUM
+
+    if(lastID != inID /*&& valid checksum*/ ) {
+      uint32_t SYNC = 0xDCC023C2;
+      uint16_t CHKSUM = 0, LENGTH = 0;
+      uint8_t  ID, FLAGS = 0x80;
+
+      ID = inID; 
+      lastID = ID;
+      lastCHKSUM = inCHKSUM;
+
+      send(client, &SYNC, sizeof(SYNC), 0);
+      send(client, &SYNC, sizeof(SYNC), 0);
+      send(client, &CHKSUM , sizeof(CHKSUM), 0);
+      send(client, &LENGTH, sizeof(LENGTH), 0);
+      send(client, &ID, sizeof(ID), 0);
+      send(client, &FLAGS, sizeof(FLAGS), 0);
+
+      //Writing data received in the output file
+      fwrite(inDATA, 1, nbytes, out_file); 
+     
+    } else if (lastCHKSUM == CHKSUM && lastID == inID) { // recebi msm pacote, mandar so ack
+      uint32_t SYNC = 0xDCC023C2;
+      uint16_t CHKSUM = 0, LENGTH = 0;
+      uint8_t  ID = inID, FLAGS = 0x80;
+
+      send(client, &SYNC, sizeof(SYNC), 0);
+      send(client, &SYNC, sizeof(SYNC), 0);
+      send(client, &CHKSUM , sizeof(CHKSUM), 0);
+      send(client, &LENGTH, sizeof(LENGTH), 0);
+      send(client, &ID, sizeof(ID), 0);
+      send(client, &FLAGS, sizeof(FLAGS), 0);
+
+    }
+
+    if(inFLAGS == 0x40) break; // Checking if FLAG == END --> END OF TRANSMISSION
+
+    // ##############################################################
+    // ##############################################################
     recvpackets++;
     
-    //Writing data received in the output file
-    fwrite(inDATA, 1, nbytes, out_file); 
   }
   fclose(out_file); // Closing file
   printf("File %s received from %i. Packets: %u\n\n", filename, client, recvpackets);
