@@ -1,6 +1,6 @@
 all:
-	gcc -g client.c -o c.app
-	gcc -g server.c -o s.app
+	gcc -g -pthread emulator.c -o e.app
+	cp -v e.app DIR/
 
 clean:
-	rm *.app
+	rm *.app DIR/*.app
