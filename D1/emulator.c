@@ -32,22 +32,8 @@ int main(int argc, char** argv){
 
         printf("Connection Accepted\n");
 
-        data->socket = newSocket;
-        data->filename = in_name;
-        int err = pthread_create(&(tid[0]), NULL, &send_file_thread, (void *) data);
 
-
-        printf("############ SERVER SIDE RECEIVING FILE FIRST ################\n");
-        receive_file(out_name, newSocket);
-        printf("############ SERVER RECEIVED FILE ################\n");
-        // ### INICIAR A PARTE DE ENVIO AQUI
-
-
-        if (err != 0)
-            printf("\ncan't create thread :[%s]", strerror(err));
-        else
-            printf("\n Thread created successfully\n");
-
+        receive_send_file(in_name, out_name, newSocket);
 
 //        send_file(in_name, newSocket);
 
@@ -65,21 +51,8 @@ int main(int argc, char** argv){
         //initiate_passiveConnection(&clientSocket, &serverAddr, c_port, hostaddr);  
         initiate_activeConnection(&ssocket, &serverAddr, c_port, hostaddr);
 
-        data->socket = ssocket;
-        data->filename = out_name;        
-        int err = pthread_create(&(tid[0]), NULL, &receive_file_thread, (void *) data);
 
-
-        printf("############ CLIENT SIDE SENDING FILE FIRST ################\n");
-        send_file(in_name, ssocket);
-        printf("############ CLIENT SENT FILE ################\n");
-
-
-        if (err != 0)
-            printf("\ncan't create thread :[%s]", strerror(err));
-        else
-            printf("\n Thread created successfully\n");
-
+        send_receive_file(in_name, out_name, ssocket);
 
   //      receive_file(out_name, ssocket);
 

@@ -15,6 +15,10 @@
 
 int    espera;
 
+typedef enum {false, true} bool;
+
+bool reenviar = false;
+
 void
 mysettimer(int milisegundos)
 {
@@ -26,6 +30,20 @@ mysettimer(int milisegundos)
     newvalue.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &newvalue, &oldvalue);
 }
+
+bool blocked = false;
+    
+void unlocker_handler(int signum) {
+    printf(" ######################### Desbloquenado reenvio #################################\n");
+    reenviar = true;
+    mysettimer(1000);
+}
+
+void stop_timer(int signum) {
+    printf("Timeout para o ultimo pacote foi desativado\n");
+    return ;
+}
+
 
 void
 timer_handler(int signum)
