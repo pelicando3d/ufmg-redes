@@ -1,6 +1,5 @@
 all:
-	gcc -g -pthread emulator.c -o e.app
-	cp -v e.app DIR/
+	gcc -g -Wall emulador.c -o dcc023c2
 
 clean:
-	rm *.app DIR/*.app
+	rm dcc023c2 out

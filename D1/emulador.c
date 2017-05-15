@@ -1,23 +1,79 @@
-#include <stdio.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <stdlib.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <stdint.h>
-#include <netdb.h>
-#include <sys/errno.h>  /* para errno, perror */
-#include <sys/time.h>   /* para setitimer */
-#include <signal.h>   /* para signal */
+#include "emulador.h"
 
-typedef enum {false, true} bool;
-bool reenviar = false;
-bool blocked = false;
-    
+int main(int argc, char** argv){
+    int ssocket, insocket, newSocket;  
+    char *c_port, *hostaddr, *in_name, *out_name;
+    struct sockaddr_in serverAddr;  
+    socklen_t addr_size;
+    struct sockaddr_storage serverStorage;  
+
+        /* checando se numero de argumentos esta dentro do aceitavel 5 + 1 opcional de debug */
+    if(argc < 5 || argc > 6) error_msg(arguments);
+
+    /* ativando saidas de debug */
+    if(argc == 6 && ! strcmp(argv[5], "-debug") )
+        debug = true;
+
+
+    printf("\n\n############################################################################# \
+            \nPara a transferencia de arquivos muito grandes, o programa pode demorar \
+            \npara finalizar as transferencias. Caso queira se certificar que o programa \
+            \nnao travou, use a flag -debug para verificar os passos em execucao. \
+            \n#############################################################################\n\n");
+
+
+    /* inicializando o emulador com o lado passivo da conexao */
+    if(argv[1][0] == '-' && argv[1][1] == 's') {
+        c_port = argv[2];
+        in_name = argv[3];
+        out_name = argv[4];
+
+        /* abrindo socket, no IP = ip do hostname */
+        initiate_passiveConnection(&insocket, &serverAddr, c_port);
+        if(listen(insocket,5)==0)
+            printf("#### Esperando conexoes ####\n");
+        else
+           error_msg(listening);
+
+        /* aceitando conexao em um novo socket*/
+        addr_size = sizeof serverStorage;
+        newSocket = accept(insocket, (struct sockaddr *) &serverStorage, &addr_size);
+
+        printf("### Conexao Aceita ###\n");
+
+        /* transferencia de arquivos */
+        receive_send_file(in_name, out_name, newSocket);
+
+        /* fechando sockets abertos */
+        close(insocket);    
+        close(newSocket);
+
+    /* inicializando o emulador com o lado ativo da conexao */
+    } else if (argv[1][0] == '-' && argv[1][1] == 'c') {
+        // Dividindo argumento 1 em porta e endereco ip
+        hostaddr = strtok (argv[2],":");
+        c_port = strtok (NULL, ":");
+        in_name = argv[3];
+        out_name = argv[4];
+
+        initiate_activeConnection(&ssocket, &serverAddr, c_port, hostaddr);
+
+        /* transferencia de arquivos*/
+        send_receive_file(in_name, out_name, ssocket);
+
+        /* fechando socket*/
+        close(ssocket);
+
+    /* problema na identificacao dos argumentos*/        
+    } else {
+        error_msg(arguments);
+    } 
+    return 0;
+}
+
+
 void mysettimer(int milisegundos) {
     struct itimerval newvalue, oldvalue;
-
     newvalue.it_value.tv_sec  = milisegundos / 1000;
     newvalue.it_value.tv_usec = milisegundos % 1000 * 1000;
     newvalue.it_interval.tv_sec  = 0;
@@ -26,23 +82,15 @@ void mysettimer(int milisegundos) {
 }
 
 void unlocker_handler(int signum) {
-    printf(" ######################### Desbloquenado reenvio #################################\n");
+    if(debug) printf(" ######################### Desbloquenado reenvio #################################\n");
     reenviar = true;
     mysettimer(1000);
 }
 
 void stop_timer(int signum) {
-    printf("Timeout para o ultimo pacote foi desativado\n");
+    if(debug) printf("Timeout para o ultimo pacote foi desativado\n");
     return ;
 }
-
-
-
-const uint32_t bufsize = 1024; // min 14 because packet headers
-const int timeout = 1000; // millisec
-bool debug = false;
-
-typedef enum {arguments, listening} errorID;
 
 void error_msg(errorID ID) {
     switch(ID) {
@@ -61,18 +109,11 @@ void error_msg(errorID ID) {
     exit(1);
 }
 
-typedef struct package {
-    uint32_t SYNC, SYNC1, SYNC2;
-    uint16_t LENGTH, CHKSUM;
-    uint8_t  ID, FLAGS, *DATA, byte_array[14];
-    bool h2ns;
-} Package;
-
 void pack(Package *p) {
     memcpy(&(p->byte_array[0]), &(p->SYNC1), sizeof(p->SYNC1)); // 00 - 31  (4 bytes) : SYNC
     memcpy(&(p->byte_array[4]), &(p->SYNC2), sizeof(p->SYNC2)); // 32 - 63  (4 bytes) : SYNC
     memcpy(&(p->byte_array[8]), &(p->CHKSUM), sizeof(p->CHKSUM)); // 64 - 79  (2 bytes) : CHKSUM
-    memcpy(&(p->byte_array[8]), &(p->LENGTH), sizeof(p->LENGTH)); // 80 - 95  (2 bytes) : LENGTH
+    memcpy(&(p->byte_array[10]), &(p->LENGTH), sizeof(p->LENGTH)); // 80 - 95  (2 bytes) : LENGTH
     memcpy(&(p->byte_array[12]), &(p->ID), sizeof(p->ID));// 96 - 103 (1 byte) : ID
     memcpy(&(p->byte_array[13]), &(p->FLAGS), sizeof(p->FLAGS));// 104 - 111 (1 bytes) : FLAGS
     p-> h2ns = false;
@@ -80,7 +121,7 @@ void pack(Package *p) {
 
 void repack(Package *p) { 
     memcpy(&(p->byte_array[8]), &(p->CHKSUM), sizeof(p->CHKSUM)); // 64 - 79  (2 bytes) : CHKSUM
-    memcpy(&(p->byte_array[8]), &(p->LENGTH), sizeof(p->LENGTH)); // 80 - 95  (2 bytes) : LENGTH
+    memcpy(&(p->byte_array[10]), &(p->LENGTH), sizeof(p->LENGTH)); // 80 - 95  (2 bytes) : LENGTH
     memcpy(&(p->byte_array[12]), &(p->ID), sizeof(p->ID));// 96 - 103 (1 byte) : ID
     memcpy(&(p->byte_array[13]), &(p->FLAGS), sizeof(p->FLAGS));// 104 - 111 (1 bytes) : FLAGS
 }
@@ -125,45 +166,53 @@ void initiate_passiveConnection(int *csocket, struct sockaddr_in* server, char* 
 
     printf("Iniciando conexao passivamente [%s|%s].\n", inet_ntoa((struct in_addr)addr->sin_addr), cport);
 
-    /*---- Configure settings of the server address struct ----*/  
-    server->sin_family = AF_INET; /* Address family = Internet */  
-    server->sin_port = htons(port); /* Set port number, using htons function to use proper byte order */  
-    server->sin_addr = (struct in_addr)addr->sin_addr; /* Set IP address to localhost */
-    //server->sin_addr.s_addr = inet_addr("192.168.1.8"); /* Set IP address to localhost */  
+    /*---- Configuracoes do lado do servidor ----*/  
+    server->sin_family = AF_INET; 
+    server->sin_port = htons(port);
+    server->sin_addr = (struct in_addr)addr->sin_addr; 
+    //server->sin_addr.s_addr = inet_addr("192.168.1.8");
 
     memset(server->sin_zero, '\0', sizeof server->sin_zero);  /* Set all bits of the padding field to 0 */
     bind(*csocket, (struct sockaddr *) server, sizeof(*server)); /*---- Bind the address struct to the socket ----*/
     printf("Socket aberto, id = %d\n", *csocket);
 }
 
+void die(uint32_t id) {
+    printf("Erro ao lidar com arquivo (%u)\n", id);
+}
 
-  void die(uint32_t id) {
-    printf("Im dead LoL WoWOOWOW (%u)\n", id);
-  }
-
-  //toDo: get server ip by hostname
-  void initiate_activeConnection(int *ssocket, struct sockaddr_in* server, char* port, char* server_addr) {
+void initiate_activeConnection(int *ssocket, struct sockaddr_in* server, char* port, char* server_addr) {
     printf("Iniciando conexao ativamente [%s|%s].\n", server_addr, port);
     int server_port = atoi(port);
     *ssocket = socket(PF_INET, SOCK_STREAM, 0);
     server->sin_family = AF_INET;
-    server->sin_port = htons(server_port); /* Set port number, using htons function to use proper byte order */  
-    server->sin_addr.s_addr = inet_addr(server_addr); /* Set IP address to localhost */  
-    memset(server->sin_zero, '\0', sizeof server->sin_zero); /* Set all bits of the padding field to 0 */
+    server->sin_port = htons(server_port);
+    server->sin_addr.s_addr = inet_addr(server_addr); 
+    memset(server->sin_zero, '\0', sizeof server->sin_zero); 
 
     socklen_t addr_size = sizeof *server;
     connect(*ssocket, (struct sockaddr *) server, addr_size);
-  }
+}
 
-  unsigned carry_around_add(unsigned a, unsigned b) {
+unsigned carry_around_add(unsigned a, unsigned b) {
     unsigned c = a + b;
     return (c &0xffff)+(c >>16);
-  }
+}
 
-  unsigned checksum(uint8_t *headers, uint8_t *data, uint16_t len){
+uint16_t checksum(uint8_t *headers, uint8_t *data, uint16_t len){
+    if(debug) printf("Calculando checksum sobre: \n");
     unsigned s = 0;
     unsigned i = 0;
-    for (; i < 14; i+=2) { // 14 bytes header
+
+    if(debug) printf("[%x][%x][%x][%x][%x][%x]", *((uint32_t*) headers), *((uint32_t*)&headers[4]), *((uint16_t*) &headers[8]), *((uint16_t*)&headers[10]), headers[12], headers[13] );
+
+    /*if(debug)
+    for (i = 0; i < len; i+=2) {
+         printf("%x", *(data+i));
+    }
+    printf("]\n");
+*/
+    for (i = 0; i < 14; i+=2) { // 14 bytes header
       unsigned w = headers[i] + (headers[i+1]<<8);
       s = carry_around_add(s, w);
     }
@@ -174,11 +223,14 @@ void initiate_passiveConnection(int *csocket, struct sockaddr_in* server, char* 
     }
 
     return~s &0xffff;
-  }
+}
 
 
-  uint16_t
-  cksum(uint8_t *headers, uint8_t *data, uint16_t len) {
+uint16_t
+cksum(uint8_t *headers, uint8_t *data, uint16_t len) {
+    if(debug) printf("Calculando checksum sobre: \n");
+    if(debug) printf("[%x][%x][%x][%x][%x][%x]", *((uint32_t*) headers), *((uint32_t*)&headers[4]), *((uint16_t*) &headers[8]), *((uint16_t*)&headers[10]), headers[12], headers[13] );
+
     register u_long sum = 0;
     u_short count = 14;
     while (count--) {
@@ -205,7 +257,7 @@ void initiate_passiveConnection(int *csocket, struct sockaddr_in* server, char* 
 
 
 void send_package(Package *p, int socket) {
-    uint32_t nbytes = 0;
+    uint32_t nbytes = 0;    
     hton(p);
     send(socket, &(p->SYNC1),  sizeof(p->SYNC1),  0);
     send(socket, &(p->SYNC2),  sizeof(p->SYNC2),  0);
@@ -215,9 +267,11 @@ void send_package(Package *p, int socket) {
     send(socket, &(p->FLAGS),  sizeof(p->FLAGS),  0);        
     ntoh(p);
     if(p->LENGTH > 0) nbytes = send(socket, p->DATA,  p->LENGTH,  0);
-    //printf("\t\t\t[socket] - Pacote enviado: [%x][%x][%x]  [%x(%u)] [%x][%x]DATA[%s] -- sent: %u\n", p->SYNC1, p->SYNC2, p->CHKSUM, p->LENGTH, p->LENGTH, p->ID, p->FLAGS, p->DATA, nbytes);        
-    if(p->LENGTH > 0) printf("\t\t\t[socket] - Pacote enviado: [%x][%x][%x]  [%x(%u)] [%x][%x]DATA[%c##%c] -- sent: %u\n", p->SYNC1, p->SYNC2, p->CHKSUM, p->LENGTH, p->LENGTH, p->ID, p->FLAGS, p->DATA[0], p->DATA[p->LENGTH-2], nbytes);        
-    else printf("\t\t\t[socket] - Pacote enviado: [%x][%x][%x]  [%x(%u)] [%x][%x] -- sent: %u\n", p->SYNC1, p->SYNC2, p->CHKSUM, p->LENGTH, p->LENGTH, p->ID, p->FLAGS, nbytes);        
+    //if(p->LENGTH > 0) printf("\t\t\t[socket] - Pacote enviado: [%x][%x][%x]  [%x(%u)] [%x][%x]DATA[%s] -- sent: %u\n", p->SYNC1, p->SYNC2, p->CHKSUM, p->LENGTH, p->LENGTH, p->ID, p->FLAGS, p->DATA, nbytes);        
+    if(debug){ 
+        if(p->LENGTH > 0) printf("\t\t\t[socket] - Pacote enviado: [%x][%x][%x]  [%x(%u)] [%x][%x]DATA[%c##%c] -- sent: %u\n", p->SYNC1, p->SYNC2, p->CHKSUM, p->LENGTH, p->LENGTH, p->ID, p->FLAGS, p->DATA[0], p->DATA[p->LENGTH-2], nbytes);        
+        else printf("\t\t\t[socket] - Pacote enviado: [%x][%x][%x]  [%x(%u)] [%x][%x] -- sent: %u\n", p->SYNC1, p->SYNC2, p->CHKSUM, p->LENGTH, p->LENGTH, p->ID, p->FLAGS, nbytes);        
+    }
 }
 
 void recv_package(Package *p, int socket) {
@@ -228,13 +282,9 @@ void recv_package(Package *p, int socket) {
     recv(socket, &(p->LENGTH), 2, 0);
     recv(socket, &(p->ID),     1, 0);
     recv(socket, &(p->FLAGS),  1, 0);    
-    printf("[socket] - Pacote recebido: [%x][%x][%x][%x][%x][%x]\n", p->SYNC1, p->SYNC2, p->CHKSUM, p->LENGTH, p->ID, p->FLAGS);    
+    if(debug) printf("[socket] - Pacote recebido: [%x][%x][%x][%x][%x][%x]\n", p->SYNC1, p->SYNC2, p->CHKSUM, p->LENGTH, p->ID, p->FLAGS);    
     ntoh(p);    
 }
-
-bool more_to_send = true;
-bool more_to_recv = true;
-
 
 void send_receive_file(char* in_name, char * out_name , int ssocket) {
     FILE *input_file, *output_file;
@@ -278,21 +328,16 @@ void send_receive_file(char* in_name, char * out_name , int ssocket) {
         
     pack(&data);
 
-    ///bool blocked = false;
-    
     while(true) {          
-      printf("######## loop ##########\n");
+      if(debug) printf("######## loop ##########\n");
       if(!reenviar && !blocked && more_to_send) {
         data.LENGTH = fread(&buffer, sizeof(char), bufsize - 14, input_file); //Reading files in chunks of bufsize at most (-16 frp, header)
-        nElem = data.LENGTH;
+        nElem = data.LENGTH;        
         if (nElem <= 0 && !feof(input_file)) { //If I couldnt read anything but I havent reached end of file, there is an error
             die(9); // reading error;
         }else {          
-          printf("#__buffer lido - %u bytes__#\n", data.LENGTH);
+          if(debug)  printf("#__buffer lido - %u bytes__#\n", data.LENGTH);
         }
-        data.DATA = buffer;
-        data.CHKSUM = cksum(data.byte_array, data.DATA, nElem);        
-        repack(&data);
 
         if(feof(input_file)){ //end of file, end of transmission
             printf("Fim do arquivo !\n\n");  
@@ -301,7 +346,14 @@ void send_receive_file(char* in_name, char * out_name , int ssocket) {
         } else {
             more_to_send = true;
         }
-        printf("#__envio liberado\n");
+        
+        data.DATA = buffer;
+        data.DATA[nElem-1] = '\0';        
+        pack(&data);
+        data.CHKSUM = cksum(data.byte_array, data.DATA, nElem);
+        
+        
+        if(debug) printf("#__envio liberado\n");
         send_package(&data, ssocket);                        
         signal(SIGALRM, unlocker_handler);    
         mysettimer(timeout);
@@ -314,26 +366,30 @@ void send_receive_file(char* in_name, char * out_name , int ssocket) {
         blocked = true;
         reenviar = false; // so ira acionar denovo depois de um segundo
       } else {
-        printf("#__envio bloqueado - more_to_send = %u, reenviar = %u, blocked (falta ack)= %u\n", more_to_send, reenviar, blocked);
+        if(debug) printf("#__envio bloqueado - more_to_send = %u, reenviar = %u, blocked (falta ack)= %u\n", more_to_send, reenviar, blocked);
       }
 
       if(!more_to_send && !more_to_recv) break;      
         
-        printf("\tEsperando ACK ou Dados%d\n", data.ID);
+        if(debug) printf("\tEsperando ACK (%u) ou Dados\n", data.ID);
         recv_package(&indata, ssocket);     
       
         if(indata.SYNC1 != indata.SYNC2 || indata.SYNC1 != 0xDCC023C2) {
-            printf("\t\tPACOTE CAGADO ABANDONADO\n");
+            if(debug) printf("\t\tDescartando pacote, inicio nao estao correto\n");
             continue; // recebi um pacote cagado, mal identificado - Abandonar
         }
 
         //Receiving Data with length determined by data.LENGTH
         if(indata.LENGTH > 0 && indata.FLAGS != 0x80) { // Se for pacote de dados
-          indata.DATA = malloc(indata.LENGTH * sizeof(uint8_t));
-          uint32_t nbytes = recv (ssocket, indata.DATA, indata.LENGTH, 0);
+            indata.DATA = malloc(indata.LENGTH * sizeof(uint8_t));
+            uint32_t nbytes = recv (ssocket, indata.DATA, indata.LENGTH, 0);
+            indata.CHKSUM = htons(indata.CHKSUM);
+            pack(&indata); //copiando headers para um bytearray para calcular chksum;
+            uint16_t in_checksum = cksum(indata.byte_array, indata.DATA, indata.LENGTH);
+            if(debug) printf("in checksum calculado $: %x\n", in_checksum);
 
 
-              if(lastID != indata.ID /*&& valid checksum*/ ) {
+            if(lastID != indata.ID /*&& Checksum valido */ ) {
                 ack.ID = indata.ID;
                 ack.ID = indata.ID;
                 ack.SYNC1 = 0xDCC023C2;
@@ -344,20 +400,20 @@ void send_receive_file(char* in_name, char * out_name , int ssocket) {
 
 
                  //ToDo: check for errors after sending data
-                 printf("\t\t - ## Pacote Valido, escrevendo dados em disco e mandando ACK\n");
+                 if(debug) printf("\t\t - ## Pacote Valido, escrevendo dados em disco e mandando ACK\n");
 
                  send_package(&ack, ssocket);
-                 printf("ACK enviado (%u)\n", ack.ID);
+                 if(debug) printf("ACK enviado (%u)\n", ack.ID);
                  lastID = indata.ID;
                  lastCHKSUM = indata.CHKSUM;
                  recvpackets++;
                 
                  //Writing data received in the output file
                  fwrite(indata.DATA, 1, nbytes, output_file); 
-                 printf("Dados escritos no disco\n");
+                 if(debug) printf("Dados escritos no disco\n");
              
              } else if (lastCHKSUM == indata.CHKSUM && lastID == indata.ID) { // recebi msm pacote, mandar so ack
-                 printf("\t\t - ## Pacote Repetido - enviando mesmo ACK\n");
+                 if(debug) printf("\t\t - ## Pacote Repetido - enviando mesmo ACK\n");
                  send_package(&ack, ssocket);
              }
 
@@ -366,16 +422,16 @@ void send_receive_file(char* in_name, char * out_name , int ssocket) {
         } else if (indata.LENGTH == 0 && indata.FLAGS == 0x80) { // Se for pacote ACK
             if(indata.ID == data.ID) { // verifica se o ACK que mandei tem msm ID do pacote de dados que enviei
               signal(SIGALRM, stop_timer); // desativa o timeout para aquele pacote ser reenviado
-              printf("ACK recebido: %u\n", indata.ID);
+              if(debug)  printf("ACK recebido: %u\n", indata.ID);
               data.ID = !data.ID; // inverte o ID do proximo pacote a enviar
               reenviar = false;
               blocked = false;
             }else {
-              printf("Problema com o ACK - reenviar (ackID = %x, ackFLAG = %x)\n", indata.ID, indata.FLAGS);
+              if(debug) printf("Problema com o ACK - reenviar (ackID = %x, ackFLAG = %x)\n", indata.ID, indata.FLAGS);
               reenviar = true;
             }
         } else if(indata.FLAGS == 0x40){          
-          printf("No more to receive\n");
+          if(debug) printf("No more to receive\n");
           more_to_recv = false;
         }
 
@@ -389,8 +445,8 @@ void send_receive_file(char* in_name, char * out_name , int ssocket) {
 
     }  
     fclose(output_file);
-    printf("File %s read from %i. Packets sent: %u\n\n", in_name, ssocket,  sentpackets);
-    printf("File %s write to  %i. Packets recv: %u\n\n", out_name, ssocket, recvpackets);
+    printf("Arquivo %s lido de     %i. Pacotes enviados : %u\n\n", in_name, ssocket,  sentpackets);
+    printf("Arquivo %s escrito de  %i. Pacotes recebidos: %u\n\n", out_name, ssocket, recvpackets);
   }
 
 
@@ -431,21 +487,32 @@ void receive_send_file(char* in_name, char* out_name , int ssocket) {
     ///bool blocked = false;
     
     while(true) {
-      printf("############# loop ###############\n");
-      printf("\tEsperando ACK ou Dados%d\n", data.ID);   
+       if(debug) printf("############# loop ###############\n");
+       if(debug) printf("\tEsperando ACK (%u) ou Dados\n", data.ID);   
       recv_package(&indata, ssocket);
         
         if(indata.SYNC1 != indata.SYNC2 || indata.SYNC1 != 0xDCC023C2) {
-            printf("\t\tPACOTE CAGADO ABANDONADO\n");
+             if(debug) printf("\t\tPacote abandonado\n");
             continue; // recebi um pacote cagado, mal identificado - Abandonar
         }
 
         //Receiving Data with length determined by data.LENGTH
         if(indata.LENGTH > 0 && indata.FLAGS != 0x80) { // Se for pacote de dados
-          printf("Pacote de dados - receberei %u bytes\n", indata.LENGTH);
+           if(debug) printf("Pacote de dados - receberei %u bytes\n", indata.LENGTH);
           indata.DATA = malloc(indata.LENGTH * sizeof(uint8_t));
           uint32_t nbytes = recv(ssocket, indata.DATA, indata.LENGTH, 0);
-          printf("Recebi %u bytes [%c##%c]\n", nbytes, indata.DATA[0], indata.DATA[indata.LENGTH-2]);
+           if(debug) printf("Recebi %u bytes [%c##%c]\n", nbytes, indata.DATA[0], indata.DATA[indata.LENGTH-2]);
+
+           if(debug) printf("--> Pacote recebido: [%x][%x][%x][%x][%x][%x]\n", indata.SYNC1, indata.SYNC2, indata.CHKSUM, indata.LENGTH, indata.ID, indata.FLAGS);    
+    
+          indata.CHKSUM = htons(indata.CHKSUM);
+          pack(&indata); //copiando headers para um bytearray para calcular chksum;
+
+          uint16_t in_checksum = cksum(indata.byte_array, indata.DATA, indata.LENGTH);
+          //AKI
+           if(debug) printf("in checksum calculado: %x\n", in_checksum);
+
+          
 
           if(lastID != indata.ID /*&& valid checksum*/ ) {
             ack.ID = indata.ID;
@@ -456,33 +523,33 @@ void receive_send_file(char* in_name, char* out_name , int ssocket) {
             ack.FLAGS = 0x80;
 
              //ToDo: check for errors after sending data
-             printf("\t\t - ## Pacote Valido, escrevendo dados em disco e mandando ACK\n");
+              if(debug) printf("\t\t - ## Pacote Valido, escrevendo dados em disco e mandando ACK\n");
              
-             //Writing data received in the output file
+             //Writing received data in the output file
              fwrite(indata.DATA, 1, nbytes, output_file); 
-             printf("\t\t # Dados escritos no diisco\n");
+              if(debug) printf("\t\t # Dados escritos no diisco\n");
 
              send_package(&ack, ssocket);
              lastID = indata.ID;
              lastCHKSUM = data.CHKSUM;
              recvpackets++;
             
-             printf("\t\tACK (%u) enviado\n", lastID);
+              if(debug) printf("\t\tACK (%u) enviado\n", lastID);
          
           } else if (lastCHKSUM == indata.CHKSUM && lastID == indata.ID) { // recebi msm pacote, mandar so ack
-             printf("\t\t - ## Pacote Repetido - enviando mesmo ACK\n");
+              if(debug) printf("\t\t - ## Pacote Repetido - enviando mesmo ACK\n");
              send_package(&ack, ssocket);
           }
         } else if (indata.LENGTH == 0 && indata.FLAGS == 0x80) { // Se for pacote ACK
             if(indata.ID == data.ID) {
               signal(SIGALRM, stop_timer);
-              printf("ACK recebido: %u\n", indata.ID);
+               if(debug) printf("ACK recebido: %u\n", indata.ID);
               data.ID = !data.ID;
               reenviar = false;
               blocked = false;
             }/*else {
               int check;
-              printf("Problema com o ACK - reenviar (ackID = %x, ackFLAG = %x)\n", indata.ID, indata.FLAGS);
+               if(debug) printf("Problema com o ACK - reenviar (ackID = %x, ackFLAG = %x)\n", indata.ID, indata.FLAGS);
               //reenviar = true;
             }*/
         }
@@ -490,21 +557,18 @@ void receive_send_file(char* in_name, char* out_name , int ssocket) {
         if(!more_to_send && !more_to_recv) break;      
 
         if(indata.FLAGS == 0x40){
-          printf("No more to receive\n");
+           if(debug) printf("No more to receive\n");
           more_to_recv = false;
         }
 
         if(!reenviar && !blocked && more_to_send) {
-            data.LENGTH = fread(&buffer, sizeof(char), bufsize - 14, input_file); //Reading files in chunks of bufsize at most (-16 frp, header)
+            data.LENGTH = fread(&buffer, sizeof(char), bufsize - 14, input_file); //Reading files in chunks of bufsize at most (-14 frp, header)
             nElem = data.LENGTH;
-            if (nElem <= 0 && !feof(input_file)) { //If I couldnt read anything but I havent reached end of file, there is an error
+            if (nElem <= 0 && !feof(input_file)) { 
                 die(9); // reading error;
             }else {          
-              printf("#__buffer lido - %u bytes__#\n", data.LENGTH);
+               if(debug) printf("#__buffer lido - %u bytes__#\n", data.LENGTH);
             }
-            data.DATA = buffer;
-            data.CHKSUM = cksum(data.byte_array, data.DATA, nElem);        
-            repack(&data);
 
             if(feof(input_file)){ //end of file, end of transmission
                 printf("Fim do arquivo !\n\n");  
@@ -513,7 +577,13 @@ void receive_send_file(char* in_name, char* out_name , int ssocket) {
             } else {
                 more_to_send = true;
             }
-            printf("#__envio liberado\n");
+
+            data.DATA = buffer;
+            data.DATA[nElem-1] = '\0';
+            data.CHKSUM = cksum(data.byte_array, data.DATA, nElem);        
+            repack(&data);
+
+             if(debug) printf("#__envio liberado\n");
             send_package(&data, ssocket);                        
             signal(SIGALRM, unlocker_handler);    
             mysettimer(timeout);
@@ -525,7 +595,7 @@ void receive_send_file(char* in_name, char* out_name , int ssocket) {
             blocked = true;
             reenviar = false; // so ira acionar denovo depois de um segundo
       } else {
-            printf("#__envio bloqueado - more_to_send = %u, reenviarSW = %u, blocked = %u\n", more_to_send, reenviar, blocked);
+             if(debug) printf("#__envio bloqueado - more_to_send = %u, reenviarSW = %u, blocked = %u\n", more_to_send, reenviar, blocked);
       }
       
 
@@ -534,29 +604,8 @@ void receive_send_file(char* in_name, char* out_name , int ssocket) {
           more_to_send = false;
       }
 
-
-      
-
-
-
-      // #######################################################################
-      // #######################################################################
     }
     fclose(output_file);
-    printf("File %s read from %i. Packets sent: %u\n\n", in_name, ssocket,  sentpackets);
-    printf("File %s write to  %i. Packets recv: %u\n\n", out_name, ssocket, recvpackets);
+    printf("Arquivo %s lido de     %i. Pacotes enviados : %u\n\n", in_name, ssocket,  sentpackets);
+    printf("Arquivo %s escrito de  %i. Pacotes recebidos: %u\n\n", out_name, ssocket, recvpackets);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
