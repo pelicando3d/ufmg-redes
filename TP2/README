@@ -1,0 +1,10 @@
+Especificacao dos pacotes de dados
+
+  4 bytes*     4 bytes*     2       2        2        2         2*       2*          ....
+=========================================================================================
+   SYNC     |    SYNC    | TIPO | ID SRC | ID DST | SEQ # | D LENGTH | FLAGS | DATA ..... 
+=========================================================================================
+0          32           64     80       96       112     128        114     160
+
+
+Campos com * são extras, extrapolando as exigências mínimas da especificação do trabalho
