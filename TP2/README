@@ -19,8 +19,8 @@ TIPO = Tipo da Mensagem
 	3 : OI   -> Primeira MSG enviada por clientes ao servidor para se identificar.
                     campo ID SRC deve ser:
                        * 0 se for enviado por um EXIBIDOR
-                       * entre 1 e 4095 é um EMISSOR não associado a um EXIBIDOR
-		       * entre 4096 e 8191 é um EMISSOR especificando o seu EXIBIDOR neste campo
+                       * entre 1 e 4095 é um EMISSOR
+		       * entre 4096 e 8191 é um EXIBIDOR especificando o seu EMISSOR neste campo
 	4 : FLW   -> ULTIMA msg enviada POR/DE um cliente para notificar sua desconexao do sistema
                      Se o SERVIDOR receber essa msg de um EMISSOR, ele deve verificar se há um 
                      EXIBIDOR associado a ele e entao enviar uma msg de FLW até ele. o EXIBIDOR 
@@ -36,3 +36,25 @@ TIPO = Tipo da Mensagem
 	7 : CLIST -> Enviada pelo SERVIDOR. Contém um inteiro N (2 bytes), que indica a quantidade 
                      de clientes do sistema. Após isso, temos N inteiros de 2 bytes identicando os 
                      IDS conecatados.
+
+==================================================================================================
+SERVIDOR tem ID fixo 65535
+deve verificar se o emissor da msg (ID src) esta realmente associado ao socket certo -- anti fraude
+==================================================================================================
+Detalhes:
+  * Podemos ter Exibidores não associados a Emissores e vice-versa.
+  * Um Socket por cliente
+  * Servidor tem um Socket para cada cliente + 1 socket de escuta
+==================================================================================================
+EMISSOR
+  * Deve ter um menu a cada MSG a ser enviada
+    1 - Compor mensagem para o cliente $ID
+    2 - Compor mensagem para Broadcast
+    3 - Solicitar CREQ para o cliente $ID
+    4 - SAIR -- envia msg FLW para servidor
+
+EXIBIDOR
+  Basicamente deve tratar todas as msgs recebidas e as imprimir na tela do usuário
+  Deve-se identificar o emissor de tal mensagem
+
+
