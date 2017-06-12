@@ -1,10 +1,36 @@
 Especificacao dos pacotes de dados
 
-  4 bytes*     4 bytes*     2       2        2        2         2*       2*          ....
+  4 bytes*     4 bytes*     2       2        2        2         2*            ....
 =========================================================================================
-   SYNC     |    SYNC    | TIPO | ID SRC | ID DST | SEQ # | D LENGTH | FLAGS | DATA ..... 
+   SYNC1    |    SYNC2   | TIPO | ID SRC | ID DST | SEQ # | D LENGTH | DATA ..... 
 =========================================================================================
-0          32           64     80       96       112     128        114     160
+0          32           64     80       96       112     128        114    
 
 
 Campos com * são extras, extrapolando as exigências mínimas da especificação do trabalho
+
+SYNC1 = 0xDCC023A1 ; Byte de sincronismo
+SYNC2 = 0xDCC023B2 ; Byte de sincronismo
+
+TIPO = Tipo da Mensagem
+	1 : OK   -> ACK, deve ser enviado a X como uma confirmação positiva que o pacote chegou
+	2 : ERRO -> deve ser enviado a X como uma confirmação negativa, dizendo que algo deu 
+                    errado com o ultimo pacote enviado por X.
+	3 : OI   -> Primeira MSG enviada por clientes ao servidor para se identificar.
+                    campo ID SRC deve ser:
+                       * 0 se for enviado por um EXIBIDOR
+                       * entre 1 e 4095 é um EMISSOR não associado a um EXIBIDOR
+		       * entre 4096 e 8191 é um EMISSOR especificando o seu EXIBIDOR neste campo
+	4 : FLW   -> ULTIMA msg enviada POR/DE um cliente para notificar sua desconexao do sistema
+                     Se o SERVIDOR receber essa msg de um EMISSOR, ele deve verificar se há um EXIBIDOR
+                     associado a ele e entao enviar uma msg de FLW até ele. o EXIBIDOR manda OK e sai.
+	5 : MSG   -> Enviada por EMISSORES ao SERVIDOR. Este encaminha para UM ou MAIS EXIBIDORES.
+                       * ID DST deve ser o ID de um EXIBIDOR ou EMISSOR associado a um EXIBIDOR.
+                         ** Caso seja um emissor associado a um exibidor, a msg deve ser enminhada ao exibidor
+                            não havendo EXIBIDOR associado, deve-se retornar ERRO
+                       * ID DST deve ser ZERO em caso de broadcast
+                     MSG em ASCII
+	6 : CREQ  -> EMISSOR a envia para o SERVIDOR. Campo ID DST contem o ID de um cliente que irá receber uma 
+                     MSG do tipo CLIST. Servidor manda OK ao EMISSOR.
+	7 : CLIST -> Enviada pelo SERVIDOR. Contém um inteiro N (2 bytes), que indica a quantidade de clientes 
+                     do sistema. Após isso, temos N inteiros de 2 bytes identicando os IDS conecatados.
