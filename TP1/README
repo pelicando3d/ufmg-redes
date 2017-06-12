@@ -1,48 +1,10 @@
-############################################################
-########        Redes de Computadores 2016/2       #########
-########             Trabalho Pratico 1            #########
-########
-########         Junio Cezar Ribeiro da Silva      #########
-########           Gabriel Miranda Pedrosa         #########
-############################################################
+TP1 - Redes de Computadores
+Junio Cezar Ribeiro da Silva
+2012075597
 
-client_TCP_IPv6.cpp (clienteFTP):
-   Codigo do nosso cliente, escrito em C++ e utilizando IPv6
+#Compilar com
+make
 
-server_TCP_IPv6.cpp (servidorFTP):
-   Codigo do nosso servidor, escrito em C++ e utilizando IPv6
-
-
-
-
-####### COMPILAÇÃO #######
-
-Deve-se utilizar o comando 
-  make 
-
-para compilar os programas. Há tambem um comando auxiliar
-  make clean
-
-para remover os binários gerados pelo processo de compilação
-
-
-####### Compilação manual #######
-  g++ -g server_TCP_IPv6.cpp -o servidorFTP -lpthread                                                                 
-  g++ -g client_TCP_IPv6.cpp -o clienteFTP 
-
-
-
-
-
-####### EXECUÇÃO #######
-
-./servidorFTP <porta> <tamanho_buffer> <diretorio>
-
-./clienteFTP list <ip_servidor> <porta> <tamanho_buffer>
-./clienteFTP get <nome_arquivo> <ip_servidor> <porta> <tamanho_buffer>
-
-
-Caso esteja executando ambas aplicações na mesma máquina pode-se 
-utilizar o ip ::1 para o servidor.
-
-
+#roda com
+./dcc023c2 -s <PORT> <INPUT> <OUTPUT>
+./dcc023c2 -c <IPPAS>:<PORT> <INPUT> <OUTPUT>
