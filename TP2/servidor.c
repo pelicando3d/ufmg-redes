@@ -24,26 +24,43 @@ typedef struct package {
 } Package;
 
 /*Associacao de IDs, IPs, FDs*/
+struct assoc;
+
 typedef struct assoc {
-  int id, fd, port;
+  uint16_t id;
+  int fd, port;
   char ip[20];
   bool alive;
 } Assoc;
 
 void erase_assoc(Assoc *a) {
-  a->id   = -1;
-  a->fd   = -1;
-  a->port = -1;
-  memset(a->ip, '\0', sizeof(a->ip));
-  a->alive = false;
+  printf("\nAssociacao Desfeita: ID = %u --> %s:%d - fd = %d\n", a->id, a->ip, a->port, a->fd);
+  free(a);
 }
 
-void associate(Assoc *a, int id, int fd, int port, char* ip){
+void associate(Assoc *a, uint16_t id, int fd, int port, char* ip){
   a->id   = id;
   a->fd   = fd;
   a->port = port;
   memcpy(a->ip, ip, strlen(ip));
   a->alive = true;
+  printf("\nNova Associacao: ID = %u --> %s:%d - fd = %d\n", a->id, a->ip, a->port, a->fd);
+}
+
+uint16_t get_free_id(uint16_t *ids_in_use) {
+  uint16_t i = 0;
+  for (; i < 65534; i++) {
+    if(ids_in_use[i] == 0) {
+      ids_in_use[i] = 1;
+      return i;
+    }
+  }
+  return -1; // unsigned, nao da certo, ToDo: Fix it!
+}
+
+void release_id(uint16_t *ids_in_use, uint16_t id) {
+  if(id < 65534)
+    ids_in_use[id] = 0;
 }
 
 void hton(Package *p) {
@@ -100,14 +117,17 @@ int main(int argc , char *argv[]) {
   int master_socket , addrlen , new_socket , client_socket[1000] , total_clients = 0 , activity, i , valread , sd;
   int max_sd;
   struct sockaddr_in address;
+  Assoc **assoc_array; // Um array com enderecos de associacoes
   int16_t port;
   uint8_t buffer[1025];
   fd_set readfds; //set de descritores de socket
   char *message = "TESTE SERVIDOR\n";
   uint32_t myID = 65535; // determinado na especificacao
-  uint32_t total_received_bytes = 0;
+  uint32_t total_received_bytes = 0, active_connections = 0, assoc_size = 30;
   uint8_t full_received_header[18];
-  uint16_t current_index = 0;
+  uint16_t current_index = 0, ids_in_use[65534]; // nao e uma boa pratica --> asuahushaus
+
+  memset(ids_in_use, 0, sizeof(ids_in_use));
 
   // Todo: Checar validade de parametros passados ao programa
   port = atoi(argv[1]);
@@ -153,6 +173,11 @@ int main(int argc , char *argv[]) {
   // aceitando conexao de entrada
   addrlen = sizeof(address);
   puts("Experando conexao");
+
+  // inicializando nosso array de associacoes com 30 possiveis clientes, caso
+  // tenhamos mais clientes do que este valor, devemos realocar memoria
+  assoc_array = malloc(30 * sizeof(*assoc_array));
+  memset(assoc_array, 0, 30 * sizeof(*assoc_array));
 
   while(true) {
     // limpar nosso set de SOCKETS para clientes
@@ -227,12 +252,22 @@ int main(int argc , char *argv[]) {
 
             if ((valread = read( sd , buffer, 18)) == 0) {
               getpeername(sd , (struct sockaddr*)&address , (socklen_t*)&addrlen);
-              printf("Host desconectado , ip %s , porta %d \n" , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
+              printf("Host desconectado %d , ip %s , porta %d \n" , sd, inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
 
               // fechar socket e liberar posicao no array
               total_clients--;
               close( sd );
               client_socket[i] = 0;
+
+              int i = 0;
+              for(; i < assoc_size; i++) {
+                if(assoc_array[i] != 0 && assoc_array[i]->fd == sd) {
+                  release_id(ids_in_use, assoc_array[i]->id);
+                  erase_assoc(assoc_array[i]);
+                  assoc_array[i] = 0;
+                  break;
+                }
+              }
             }
 
             // caso a conexao nao tenha sido finalizada, vamos processar o pacote de entrada
@@ -266,11 +301,36 @@ int main(int argc , char *argv[]) {
                   if(IN.TYPE ==  3) { // Tipo OI
                     if(IN.ID_DST == 65535) { // Se o destino esta corretamente setado como o servidor
                       if(IN.ID_SRC == 0) { // Exibidor se conectando
-                        // Alocar ID para este cliente, mapealo e enviar para ele
-                        printf("COLE\n");
+                        // Alocar ID para este cliente, mapealo e enviar OK para ele
+                        int i = 0;
+                        for(; i < assoc_size; i++) {
+                          // se nao encontrar uma associacao ativa, criar uma
+                          if(assoc_array[i] == 0) {
+                            Assoc *new_assoc = malloc(sizeof(*new_assoc));
+                            uint16_t client_id = get_free_id(ids_in_use);
+                            associate(new_assoc, client_id, new_socket, ntohs(address.sin_port), inet_ntoa(address.sin_addr));
+                            assoc_array[i] = new_assoc;
+                            // Agora que associou, vamos enviar a msg OK de volta ao cliente
+                            Package OK;
+                            OK.SYNC1    = 0xDCC023A1;
+                            OK.SYNC2    = 0xDCC023B2;
+                            OK.TYPE     = 1;
+                            OK.ID_SRC   = 65535;
+                            OK.ID_DST   = client_id;
+                            OK.SEQ_N    = IN.SEQ_N;
+                            OK.D_LENGTH = 0;
+                            
+                            send_package(&OK, assoc_array[i]->fd);
+
+                            break;
+                          } else {
+                            // checar se praquele socket ja existe alguma associacao
+                            // esse caso nao deve ocorrer
+                          }
+                        }
                       }
                     }
-                  }                  
+                  }
                 }
                 total_received_bytes = 0;
                 current_index = 0;
